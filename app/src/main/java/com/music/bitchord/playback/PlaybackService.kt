@@ -1861,6 +1861,7 @@ class PlaybackService : MediaLibraryService() {
                 existing = listOf(radioSeed),
                 seedSong = radioSeed,
                 limit = INITIAL_STATION_TRACKS,
+                avoidAlternateVersions = AppSettings.dontRepeatSuggestions.value,
             ).getOrElse {
                 TrackLog.w(
                     "BitChord",
@@ -2449,7 +2450,12 @@ class PlaybackService : MediaLibraryService() {
                 } else {
                     queueSongs
                 }
-                val result = loadAutoplayTracks(existing, current, remaining)
+                val result = loadAutoplayTracks(
+                    existing = existing,
+                    seedSong = current,
+                    limit = remaining,
+                    avoidAlternateVersions = AppSettings.dontRepeatSuggestions.value,
+                )
                 val resolved = result.getOrElse {
                     TrackLog.w(
                         "BitChord",
