@@ -784,6 +784,8 @@ class PlaybackService : MediaLibraryService() {
     private val sessionSongHistory = mutableListOf<Song>()
     /** Tracks actually reached by playback, used as taste seeds only. */
     private val autoplayTasteHistory = mutableListOf<Song>()
+    /** Every fourth refill escapes the immediate recommendation chain. */
+    private var autoplayRefillCount = 0
     private var autoplayTasteCandidateId: String? = null
     private var autoplayTasteCandidateRecorded = false
 
@@ -2454,6 +2456,8 @@ class PlaybackService : MediaLibraryService() {
         if (needed <= 0) return
         if (autoplaySeed == current.videoId) return
         autoplaySeed = current.videoId
+        val exploreFromTaste = autoplayRefillCount++ % AUTOPLAY_EXPLORATION_EVERY ==
+            AUTOPLAY_EXPLORATION_EVERY - 1
         autoplayLoadJob = scope.launch {
             var remaining = needed
             var emptyRefreshesRemaining = MAX_AUTOPLAY_EMPTY_REFRESHES
@@ -2482,6 +2486,7 @@ class PlaybackService : MediaLibraryService() {
                     avoidAlternateVersions = AppSettings.dontRepeatSuggestions.value,
                     tasteSeeds = autoplayTasteHistory,
                     styleOf = { song -> ArtistFacts.genresFor(song.artist).toSet() },
+                    exploreFromTaste = exploreFromTaste,
                 )
                 val resolved = result.getOrElse {
                     TrackLog.w(
@@ -5209,6 +5214,7 @@ class PlaybackService : MediaLibraryService() {
         repeatAllStashSeed = null
         sessionSongHistory.clear()
         autoplayTasteHistory.clear()
+        autoplayRefillCount = 0
         autoplayTasteCandidateId = null
         autoplayTasteCandidateRecorded = false
         persistedQueueStart = 0
@@ -8364,6 +8370,9 @@ class PlaybackService : MediaLibraryService() {
 
         /** Enough recent context for diversity without retaining an unbounded session. */
         const val MAX_AUTOPLAY_TASTE_HISTORY = 32
+
+        /** Periodically escape a narrow related-song chain without hard-coded genres. */
+        const val AUTOPLAY_EXPLORATION_EVERY = 4
 
         /** Do not let a quick skip become a taste seed. */
         const val AUTOPLAY_TASTE_MINIMUM_MS = 30_000L

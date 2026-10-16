@@ -106,11 +106,20 @@ suspend fun loadAutoplayTracks(
     avoidAlternateVersions: Boolean = false,
     tasteSeeds: List<Song> = emptyList(),
     styleOf: (Song) -> Set<String> = { emptySet() },
+    exploreFromTaste: Boolean = false,
 ): Result<List<Song>> {
-    val seeds = listOf(seedSong) + tasteSeeds.asReversed()
+    val recentSeeds = tasteSeeds.asReversed()
         .filter { it.videoId != seedSong.videoId }
         .distinctBy { it.videoId }
         .take(MAX_TASTE_SEEDS - 1)
+    // Every few refills, let an older song the listener actually stayed with
+    // lead the candidate pool. The current song remains included, so this is
+    // exploration rather than abandoning relevance or hard-coding genres.
+    val seeds = if (exploreFromTaste && recentSeeds.isNotEmpty()) {
+        listOf(recentSeeds.last(), seedSong) + recentSeeds.dropLast(1)
+    } else {
+        listOf(seedSong) + recentSeeds
+    }
     val resolvedSeeds = seeds.map { it to youtubeSeedFor(it) }
         .filter { it.second != null }
     if (resolvedSeeds.isEmpty()) {
