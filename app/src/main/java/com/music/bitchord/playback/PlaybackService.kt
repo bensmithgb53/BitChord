@@ -120,6 +120,8 @@ import com.music.bitchord.data.discord.discordAudioQualityLine
 import com.music.bitchord.data.innertube.PlaybackTracker
 import com.music.bitchord.data.stats.ListeningRecorder
 import com.music.bitchord.data.stats.ArtistFacts
+import com.music.bitchord.data.stats.ListeningStats
+import com.music.bitchord.data.stats.ReplayPeriod
 import com.music.bitchord.data.innertube.PlayerClient
 import com.music.bitchord.data.innertube.StreamResolver
 import com.music.bitchord.data.model.LikeStatus
@@ -784,6 +786,9 @@ class PlaybackService : MediaLibraryService() {
     private val sessionSongHistory = mutableListOf<Song>()
     /** Tracks actually reached by playback, used as taste seeds only. */
     private val autoplayTasteHistory = mutableListOf<Song>()
+    /** Artists skipped after a meaningful listen; a soft, session-only penalty. */
+    private val autoplaySkippedArtists = linkedSetOf<String>()
+    private var autoplayTasteCandidateSong: Song? = null
     /** Every fourth refill escapes the immediate recommendation chain. */
     private var autoplayRefillCount = 0
     private var autoplayTasteCandidateId: String? = null
@@ -804,6 +809,20 @@ class PlaybackService : MediaLibraryService() {
         if (listenedEnough) {
             rememberAutoplayTaste(song)
             autoplayTasteCandidateRecorded = true
+        }
+    }
+
+    private fun recordAutoplaySkip(previousEnded: Boolean) {
+        val song = autoplayTasteCandidateSong ?: return
+        if (previousEnded || !song.fromAutoplay) return
+        if (lastPositionSeconds * 1000L < AUTOPLAY_SKIP_FEEDBACK_MINIMUM_MS) return
+        autoplayTasteHistory.removeAll { it.videoId == song.videoId }
+        QueueBuilder.artistSet(song.artist).firstOrNull()?.let { artist ->
+            autoplaySkippedArtists.remove(artist)
+            autoplaySkippedArtists += artist
+            while (autoplaySkippedArtists.size > MAX_AUTOPLAY_SKIPPED_ARTISTS) {
+                autoplaySkippedArtists.remove(autoplaySkippedArtists.first())
+            }
         }
     }
 
@@ -2440,6 +2459,7 @@ class PlaybackService : MediaLibraryService() {
             return
         }
         val current = exoPlayer.currentMediaItem?.toSong() ?: return
+        autoplayTasteCandidateSong = current
         if (autoplayTasteCandidateId != current.videoId) {
             autoplayTasteCandidateId = current.videoId
             autoplayTasteCandidateRecorded = false
@@ -2479,6 +2499,15 @@ class PlaybackService : MediaLibraryService() {
                 } else {
                     queueSongs
                 }
+                val longTermSeeds = if (exploreFromTaste) {
+                    runCatching {
+                        ListeningStats.summary(ReplayPeriod.ALL_TIME).songs
+                            .take(MAX_LONG_TERM_AUTOPLAY_SEEDS)
+                            .map { it.song }
+                    }.getOrDefault(emptyList())
+                } else {
+                    emptyList()
+                }
                 val result = loadAutoplayTracks(
                     existing = existing,
                     seedSong = current,
@@ -2487,6 +2516,8 @@ class PlaybackService : MediaLibraryService() {
                     tasteSeeds = autoplayTasteHistory,
                     styleOf = { song -> ArtistFacts.genresFor(song.artist).toSet() },
                     exploreFromTaste = exploreFromTaste,
+                    longTermSeeds = longTermSeeds,
+                    avoidArtists = autoplaySkippedArtists.toSet(),
                 )
                 val resolved = result.getOrElse {
                     TrackLog.w(
@@ -2888,6 +2919,7 @@ class PlaybackService : MediaLibraryService() {
         alreadyAudible: Boolean = false,
     ) {
         val exoPlayer = player ?: return
+        recordAutoplaySkip(previousEnded)
         currentAudioInputFormat = null
         NerdStats.onTrackTransition()
         AudioOutputStatus.onTrackTransition()
@@ -5214,6 +5246,8 @@ class PlaybackService : MediaLibraryService() {
         repeatAllStashSeed = null
         sessionSongHistory.clear()
         autoplayTasteHistory.clear()
+        autoplaySkippedArtists.clear()
+        autoplayTasteCandidateSong = null
         autoplayRefillCount = 0
         autoplayTasteCandidateId = null
         autoplayTasteCandidateRecorded = false
@@ -8373,6 +8407,12 @@ class PlaybackService : MediaLibraryService() {
 
         /** Periodically escape a narrow related-song chain without hard-coded genres. */
         const val AUTOPLAY_EXPLORATION_EVERY = 4
+
+        /** Small persistent-history sample used only on exploration refills. */
+        const val MAX_LONG_TERM_AUTOPLAY_SEEDS = 12
+        /** A skip around the user's reported 35-second point is feedback, not a like. */
+        const val AUTOPLAY_SKIP_FEEDBACK_MINIMUM_MS = 30_000L
+        const val MAX_AUTOPLAY_SKIPPED_ARTISTS = 8
 
         /** Do not let a quick skip become a taste seed. */
         const val AUTOPLAY_TASTE_MINIMUM_MS = 30_000L

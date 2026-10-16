@@ -40,6 +40,7 @@ object QueueBuilder {
         limit: Int,
         avoidAlternateVersions: Boolean = false,
         styleOf: (Song) -> Set<String> = { emptySet() },
+        avoidArtists: Set<String> = emptySet(),
     ): List<Song> {
         val taken = existing.toMutableList()
         val perArtist = mutableMapOf<String, Int>()
@@ -70,6 +71,8 @@ object QueueBuilder {
         while (remaining.isNotEmpty() && out.size < limit) {
             val candidate = remaining.minWithOrNull(
                 compareBy<Song> { song ->
+                    if (artistSet(song.artist).any { it in avoidArtists }) 1 else 0
+                }.thenBy { song ->
                     styleDistance(song, recentStyles, styleOf)
                 }.thenBy { song ->
                     if (artistSet(song.artist).any { it in recentArtists }) 1 else 0

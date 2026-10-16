@@ -107,6 +107,8 @@ suspend fun loadAutoplayTracks(
     tasteSeeds: List<Song> = emptyList(),
     styleOf: (Song) -> Set<String> = { emptySet() },
     exploreFromTaste: Boolean = false,
+    longTermSeeds: List<Song> = emptyList(),
+    avoidArtists: Set<String> = emptySet(),
 ): Result<List<Song>> {
     val recentSeeds = tasteSeeds.asReversed()
         .filter { it.videoId != seedSong.videoId }
@@ -115,7 +117,13 @@ suspend fun loadAutoplayTracks(
     // Every few refills, let an older song the listener actually stayed with
     // lead the candidate pool. The current song remains included, so this is
     // exploration rather than abandoning relevance or hard-coding genres.
-    val seeds = if (exploreFromTaste && recentSeeds.isNotEmpty()) {
+    val persistentSeed = longTermSeeds
+        .filter { it.videoId != seedSong.videoId }
+        .filterNot { candidate -> recentSeeds.any { it.videoId == candidate.videoId } }
+        .firstOrNull()
+    val seeds = if (exploreFromTaste && persistentSeed != null) {
+        listOf(persistentSeed, seedSong) + recentSeeds.take(MAX_TASTE_SEEDS - 2)
+    } else if (exploreFromTaste && recentSeeds.isNotEmpty()) {
         listOf(recentSeeds.last(), seedSong) + recentSeeds.dropLast(1)
     } else {
         listOf(seedSong) + recentSeeds
@@ -137,7 +145,14 @@ suspend fun loadAutoplayTracks(
         return Result.failure(failure ?: Exception("AutoPlay radio unavailable"))
     }
     val related = responses.flatMap { it.getOrDefault(emptyList()) }
-    val extra = QueueBuilder.extend(existing, related, limit, avoidAlternateVersions, styleOf)
+    val extra = QueueBuilder.extend(
+        existing = existing,
+        candidates = related,
+        limit = limit,
+        avoidAlternateVersions = avoidAlternateVersions,
+        styleOf = styleOf,
+        avoidArtists = avoidArtists,
+    )
     AutoplayDiagnostics.recordBatch(
         seed = seedSong,
         tasteSeeds = seeds.drop(1),
