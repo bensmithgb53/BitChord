@@ -206,6 +206,37 @@ class QueueBuilderTest {
     }
 
     @Test
+    fun `known different style gets an occasional exploration priority`() {
+        val extra = QueueBuilder.extend(
+            existing = listOf(song("seed", "Seed", "Justin Bieber")),
+            candidates = listOf(
+                song("same", "Same lane", "Pop Artist"),
+                song("different", "Different lane", "Dance Artist"),
+            ),
+            limit = 1,
+            styleOf = { candidate ->
+                when (candidate.artist) {
+                    "Justin Bieber", "Pop Artist" -> setOf("pop")
+                    "Dance Artist" -> setOf("dance")
+                    else -> emptySet()
+                }
+            },
+        )
+        assertEquals(listOf("different"), extra.map { it.videoId })
+    }
+
+    @Test
+    fun `style exploration never blocks a same artist when it is the only useful candidate`() {
+        val extra = QueueBuilder.extend(
+            existing = listOf(song("seed", "Seed", "Justin Bieber")),
+            candidates = listOf(song("same", "Another song", "Justin Bieber")),
+            limit = 1,
+            styleOf = { setOf("pop") },
+        )
+        assertEquals(listOf("same"), extra.map { it.videoId })
+    }
+
+    @Test
     fun `the cap counts a reordered credit as one artist`() {
         val seed = song("seed", "Seed", "Nucleya")
         val candidates = listOf(

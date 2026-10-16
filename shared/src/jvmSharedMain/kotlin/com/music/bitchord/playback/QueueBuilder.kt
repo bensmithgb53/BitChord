@@ -39,6 +39,7 @@ object QueueBuilder {
         candidates: List<Song>,
         limit: Int,
         avoidAlternateVersions: Boolean = false,
+        styleOf: (Song) -> Set<String> = { emptySet() },
     ): List<Song> {
         val taken = existing.toMutableList()
         val perArtist = mutableMapOf<String, Int>()
@@ -47,6 +48,10 @@ object QueueBuilder {
         val recentArtists = existing
             .takeLast(RECENT_ARTIST_WINDOW)
             .flatMap { artistSet(it.artist) }
+            .toSet()
+        val recentStyles = existing
+            .takeLast(RECENT_STYLE_WINDOW)
+            .flatMap(styleOf)
             .toSet()
 
         // A mix pairs all but every track with its own music-video upload —
@@ -65,6 +70,8 @@ object QueueBuilder {
         while (remaining.isNotEmpty() && out.size < limit) {
             val candidate = remaining.minWithOrNull(
                 compareBy<Song> { song ->
+                    styleDistance(song, recentStyles, styleOf)
+                }.thenBy { song ->
                     if (artistSet(song.artist).any { it in recentArtists }) 1 else 0
                 }.thenBy { song ->
                     artistSet(song.artist).maxOfOrNull { perArtist[it] ?: 0 } ?: 0
@@ -94,6 +101,22 @@ object QueueBuilder {
             out += candidate
         }
         return out
+    }
+
+    /**
+     * Prefer a known style outside the recent lane, but never let an unknown
+     * style displace a known relevant candidate. With no style facts available
+     * this returns zero, preserving the existing ranking exactly.
+     */
+    private fun styleDistance(
+        song: Song,
+        recentStyles: Set<String>,
+        styleOf: (Song) -> Set<String>,
+    ): Int {
+        if (recentStyles.isEmpty()) return 0
+        val styles = styleOf(song)
+        if (styles.isEmpty()) return 2
+        return if (styles.any { it !in recentStyles }) 0 else 1
     }
 
     /**
@@ -180,6 +203,7 @@ object QueueBuilder {
     )
     /** Recent enough to reduce a streak without making an artist disappear. */
     private const val RECENT_ARTIST_WINDOW = 6
+    private const val RECENT_STYLE_WINDOW = 5
     private val TOPIC = Regex("""\s*-\s*topic\b""", RegexOption.IGNORE_CASE)
     private val PUNCTUATION = Regex("""[^\p{L}\p{N}]+""")
     private val SPACES = Regex("""\s+""")

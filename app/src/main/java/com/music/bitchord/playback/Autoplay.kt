@@ -105,6 +105,7 @@ suspend fun loadAutoplayTracks(
     limit: Int = MAX_QUEUED_AUTOPLAY,
     avoidAlternateVersions: Boolean = false,
     tasteSeeds: List<Song> = emptyList(),
+    styleOf: (Song) -> Set<String> = { emptySet() },
 ): Result<List<Song>> {
     val seeds = listOf(seedSong) + tasteSeeds.asReversed()
         .filter { it.videoId != seedSong.videoId }
@@ -127,7 +128,7 @@ suspend fun loadAutoplayTracks(
         return Result.failure(failure ?: Exception("AutoPlay radio unavailable"))
     }
     val related = responses.flatMap { it.getOrDefault(emptyList()) }
-    val extra = QueueBuilder.extend(existing, related, limit, avoidAlternateVersions)
+    val extra = QueueBuilder.extend(existing, related, limit, avoidAlternateVersions, styleOf)
     AutoplayDiagnostics.recordBatch(
         seed = seedSong,
         tasteSeeds = seeds.drop(1),
