@@ -44,6 +44,10 @@ object QueueBuilder {
         val perArtist = mutableMapOf<String, Int>()
         val seedArtists = existing.lastOrNull()?.artist?.let(::artistSet).orEmpty()
         val out = mutableListOf<Song>()
+        val recentArtists = existing
+            .takeLast(RECENT_ARTIST_WINDOW)
+            .flatMap { artistSet(it.artist) }
+            .toSet()
 
         // A mix pairs all but every track with its own music-video upload —
         // the same recording under a different id, titled far enough apart
@@ -52,11 +56,21 @@ object QueueBuilder {
         // music app wants; videos only stand in when there is nothing else.
         val songsOnly = candidates.filterNot { it.isVideo }
         // The normal release gets first pick over a remix when both are in the
-        // watch queue. Keep the source's order within each group.
-        val ordered = (songsOnly.ifEmpty { candidates }).sortedBy { isRemix(it.title) }
+        // watch queue. Among otherwise equal candidates, prefer an artist that
+        // has not appeared recently and an artist not already used in this
+        // batch. This is a soft cooldown: if the radio only offers one artist,
+        // the candidate is still allowed through, subject to the existing cap.
+        val remaining = (songsOnly.ifEmpty { candidates }).toMutableList()
 
-        for (candidate in ordered) {
-            if (out.size >= limit) break
+        while (remaining.isNotEmpty() && out.size < limit) {
+            val candidate = remaining.minWithOrNull(
+                compareBy<Song> { song ->
+                    if (artistSet(song.artist).any { it in recentArtists }) 1 else 0
+                }.thenBy { song ->
+                    artistSet(song.artist).maxOfOrNull { perArtist[it] ?: 0 } ?: 0
+                }.thenBy { isRemix(it.title) },
+            ) ?: break
+            remaining.remove(candidate)
             if (taken.any {
                     isSameRecording(it, candidate) ||
                         (avoidAlternateVersions && isSameSongAcrossMixVersions(it, candidate))
@@ -164,6 +178,8 @@ object QueueBuilder {
         """\s+(?:(?:[\p{L}\p{N}'’&.]+\s+){0,4})?(?:remix|re[\s-]?mix|mix)\s*$""",
         RegexOption.IGNORE_CASE,
     )
+    /** Recent enough to reduce a streak without making an artist disappear. */
+    private const val RECENT_ARTIST_WINDOW = 6
     private val TOPIC = Regex("""\s*-\s*topic\b""", RegexOption.IGNORE_CASE)
     private val PUNCTUATION = Regex("""[^\p{L}\p{N}]+""")
     private val SPACES = Regex("""\s+""")

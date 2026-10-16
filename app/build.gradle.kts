@@ -114,13 +114,13 @@ android {
     // applicationId can only be overridden per flavor, not per build type, so a
     // dev/prod dimension exists purely to let both sit installed side by side
     // on the same device instead of the dev build overwriting the prod one.
-    flavorDimensions += "env"
-    productFlavors {
-        create("dev") {
-            dimension = "env"
-            applicationId = "com.dev.bitchord"
-            resValue("string", "app_name", "BitChord Dev")
-        }
+	    flavorDimensions += "env"
+	    productFlavors {
+	        create("dev") {
+	            dimension = "env"
+	            applicationId = "com.dev.bitchord.autoplaytest"
+	            resValue("string", "app_name", "BitChord AutoPlay Test")
+	        }
         create("prod") {
             dimension = "env"
             // Matches defaultConfig — this is the package already shipped/installed.

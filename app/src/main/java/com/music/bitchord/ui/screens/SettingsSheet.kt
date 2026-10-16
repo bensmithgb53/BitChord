@@ -107,11 +107,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
@@ -148,6 +150,7 @@ import com.music.bitchord.data.settings.DownloadQuality
 import com.music.bitchord.data.settings.ThemeMode
 import com.music.bitchord.data.stats.Backup
 import com.music.bitchord.playback.AudioCache
+import com.music.bitchord.playback.AutoplayDiagnostics
 import com.music.bitchord.ui.player.fullBleedArtworkAvailable
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -182,6 +185,8 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val autoplayDiagnosticLines by AutoplayDiagnostics.lines.collectAsStateWithLifecycle()
 
     val wifiQuality by AppSettings.audioQualityWifi.collectAsStateWithLifecycle()
     val cellularQuality by AppSettings.audioQualityCellular.collectAsStateWithLifecycle()
@@ -272,6 +277,7 @@ fun SettingsScreen(
     var picking by remember { mutableStateOf<QualityTarget?>(null) }
     var pickingDownloadQuality by remember { mutableStateOf(false) }
     var pickingAutomixPerformance by remember { mutableStateOf(false) }
+    var showAutoplayDiagnostics by remember { mutableStateOf(false) }
     // What the last export or import did, shown on the row that did it rather
     // than as a toast: a backup is the one action here whose outcome nobody can
     // check by looking at the app afterwards. Held per direction, or an import's
@@ -1224,6 +1230,19 @@ fun SettingsScreen(
         // No footer: it only restated the stop-on-close row's own subtitle,
         // which sits four rows above it and says the same thing in fewer words.
         SearchableSettingsGroup(search, header = stringResource(R.string.miscellaneous)) {
+            val autoplayDiagnosticsTitle = "AutoPlay diagnostics"
+            row(autoplayDiagnosticsTitle, "autoplay", "radio", "recommendations", "log", "debug") {
+                SettingsRow(
+                    icon = Icons.Rounded.AutoAwesome,
+                    title = autoplayDiagnosticsTitle,
+                    subtitle = if (autoplayDiagnosticLines.isEmpty()) {
+                        "Copy a privacy-safe recommendation report"
+                    } else {
+                        "${autoplayDiagnosticLines.size} report lines recorded"
+                    },
+                    onClick = { showAutoplayDiagnostics = true },
+                )
+            }
             val playNextOnSwipeTitle = stringResource(R.string.play_next_on_swipe)
             row(playNextOnSwipeTitle, "swipe", "queue") {
                 SettingsRow(
@@ -1509,6 +1528,46 @@ fun SettingsScreen(
         )
     }
 
+    if (showAutoplayDiagnostics) {
+        AlertDialog(
+            onDismissRequest = { showAutoplayDiagnostics = false },
+            title = { Text("AutoPlay diagnostics") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    Text(
+                        text = "This report contains recommendation counts and song names/artists only. It does not include YouTube IDs, URLs, tokens, cookies, account IDs, or file paths. It stays in memory and is not uploaded.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 10.dp),
+                    )
+                    Text(AutoplayDiagnostics.report())
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    clipboard.setText(AnnotatedString(AutoplayDiagnostics.report()))
+                    Toast.makeText(context, "AutoPlay report copied", Toast.LENGTH_SHORT).show()
+                }) {
+                    Text("Copy report")
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { AutoplayDiagnostics.clear() }) {
+                        Text("Clear")
+                    }
+                    TextButton(onClick = { showAutoplayDiagnostics = false }) {
+                        Text("Done")
+                    }
+                }
+            },
+        )
+    }
     // Asked before the picker opens rather than after a file is chosen: the
     // thing being confirmed is that this device's own history is about to be
     // thrown away, and that is true whichever file gets picked.

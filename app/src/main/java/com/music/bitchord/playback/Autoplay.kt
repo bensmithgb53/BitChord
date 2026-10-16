@@ -10,6 +10,9 @@ import com.music.bitchord.data.sources.SourceRegistry
 import com.music.bitchord.data.sources.TrackMatcher
 import com.music.bitchord.playback.QueueCoordinator.asQueueEntry
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 
 /** Most AutoPlay-suggested tracks kept queued ahead of the current one at once. */
 const val MAX_QUEUED_AUTOPLAY = 10
@@ -101,10 +104,37 @@ suspend fun loadAutoplayTracks(
     seedSong: Song,
     limit: Int = MAX_QUEUED_AUTOPLAY,
     avoidAlternateVersions: Boolean = false,
+    tasteSeeds: List<Song> = emptyList(),
 ): Result<List<Song>> {
-    val seed = youtubeSeedFor(seedSong) ?: return Result.success(emptyList())
-    val related = YtMusicRepository.radio(seed).getOrElse { return Result.failure(it) }
+    val seeds = listOf(seedSong) + tasteSeeds.asReversed()
+        .filter { it.videoId != seedSong.videoId }
+        .distinctBy { it.videoId }
+        .take(MAX_TASTE_SEEDS - 1)
+    val resolvedSeeds = seeds.map { it to youtubeSeedFor(it) }
+        .filter { it.second != null }
+    if (resolvedSeeds.isEmpty()) {
+        AutoplayDiagnostics.recordFailure("no recommendation seeds could be resolved")
+        return Result.success(emptyList())
+    }
+    val responses = coroutineScope {
+        resolvedSeeds.map { (_, seed) ->
+            async { YtMusicRepository.radio(seed!!) }
+        }.awaitAll()
+    }
+    val failure = responses.firstNotNullOfOrNull { it.exceptionOrNull() }
+    if (responses.none { it.isSuccess }) {
+        AutoplayDiagnostics.recordFailure("all recommendation requests failed")
+        return Result.failure(failure ?: Exception("AutoPlay radio unavailable"))
+    }
+    val related = responses.flatMap { it.getOrDefault(emptyList()) }
     val extra = QueueBuilder.extend(existing, related, limit, avoidAlternateVersions)
+    AutoplayDiagnostics.recordBatch(
+        seed = seedSong,
+        tasteSeeds = seeds.drop(1),
+        candidateCount = related.size,
+        selected = extra,
+        existingCount = existing.size,
+    )
     if (extra.isEmpty()) return Result.success(emptyList())
 
     return Result.success(extra.map {
@@ -116,3 +146,6 @@ suspend fun loadAutoplayTracks(
         ).asQueueEntry(QueueTier.AUTOPLAY)
     })
 }
+
+/** More than one seed prevents a single autoplay chain from defining the whole queue. */
+private const val MAX_TASTE_SEEDS = 4

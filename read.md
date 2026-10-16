@@ -56,3 +56,15 @@ QueueBuilder.extend(existing, related, limit, avoidAlternateVersions)
 ```
 
 `MainActivity.kt` and `PlaybackService.kt` pass the app’s **Don’t repeat songs** setting for a new radio and later AutoPlay refills.
+
+## 2026-10-16 — Adaptive AutoPlay diversity
+
+**What changed:** AutoPlay now gathers related candidates from the current track plus up to three recently played taste seeds. The queue builder softly prefers artists that have not appeared recently and rotates away from artists already used in the current batch, while still allowing a familiar artist when the radio has no good alternatives. No artist, genre, language, or style is hard-coded or blocked.
+
+**Files changed:**
+- `app/src/main/java/com/music/bitchord/playback/Autoplay.kt` — gathers multiple radio batches concurrently and merges them safely.
+- `app/src/main/java/com/music/bitchord/playback/PlaybackService.kt` — keeps a bounded, in-memory history of tracks actually reached by playback as taste seeds; unplayed suggestions are not used as preference evidence.
+- `shared/src/jvmSharedMain/kotlin/com/music/bitchord/playback/QueueBuilder.kt` — applies soft recent-artist cooldown and within-batch artist rotation before existing duplicate/remix filtering.
+- `app/src/test/java/com/music/bitchord/QueueBuilderTest.kt` — covers cooldown, diversity, and fallback behavior.
+
+**Checks:** Shared JVM compilation and tests passed. Android unit tests/ APK build were not available in the sandbox because the Android SDK is not installed.

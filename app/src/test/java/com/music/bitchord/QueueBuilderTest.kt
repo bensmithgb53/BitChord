@@ -176,6 +176,36 @@ class QueueBuilderTest {
     }
 
     @Test
+    fun `recent artist is cooled down when other artists are available`() {
+        val existing = listOf(
+            song("old-1", "Old 1", "The Kid LAROI"),
+            song("old-2", "Old 2", "The Kid LAROI"),
+        )
+        val candidates = listOf(
+            song("laroi", "Fresh LAROI", "The Kid LAROI"),
+            song("other-1", "Other 1", "Artist One"),
+            song("other-2", "Other 2", "Artist Two"),
+        )
+
+        val extra = QueueBuilder.extend(existing, candidates, limit = 3)
+
+        assertEquals(listOf("other-1", "other-2", "laroi"), extra.map { it.videoId })
+    }
+
+    @Test
+    fun `recent artist is still allowed when it is the only useful candidate`() {
+        val existing = listOf(song("old", "Old", "The Kid LAROI"))
+        val candidates = listOf(
+            song("new-1", "New 1", "The Kid LAROI"),
+            song("new-2", "New 2", "The Kid LAROI"),
+        )
+
+        val extra = QueueBuilder.extend(existing, candidates, limit = 2)
+
+        assertEquals(listOf("new-1", "new-2"), extra.map { it.videoId })
+    }
+
+    @Test
     fun `the cap counts a reordered credit as one artist`() {
         val seed = song("seed", "Seed", "Nucleya")
         val candidates = listOf(

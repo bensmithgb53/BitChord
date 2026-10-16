@@ -777,12 +777,32 @@ class PlaybackService : MediaLibraryService() {
     private var lastRepeatMode = Player.REPEAT_MODE_OFF
 
     /**
-     * Every song AutoPlay has offered or played this service instance, kept
-     * only so "don't repeat suggestions" has something to check against once
-     * a song scrolls out of the live queue or the queue itself is replaced.
-     * Never persisted — a fresh process means a fresh session.
+     * Songs reserved for no-repeat filtering. Never persisted — a fresh process
+     * means a fresh session.
      */
     private val sessionSongHistory = mutableListOf<Song>()
+    /** Tracks actually reached by playback, used as taste seeds only. */
+    private val autoplayTasteHistory = mutableListOf<Song>()
+    private var autoplayTasteCandidateId: String? = null
+    private var autoplayTasteCandidateRecorded = false
+
+    private fun rememberAutoplayTaste(song: Song) {
+        autoplayTasteHistory.removeAll { it.videoId == song.videoId }
+        autoplayTasteHistory += song
+        if (autoplayTasteHistory.size > MAX_AUTOPLAY_TASTE_HISTORY) {
+            autoplayTasteHistory.subList(0, autoplayTasteHistory.size - MAX_AUTOPLAY_TASTE_HISTORY).clear()
+        }
+    }
+
+    private fun recordAutoplayTasteIfEarned(song: Song, positionMs: Long, durationMs: Long) {
+        if (autoplayTasteCandidateId != song.videoId || autoplayTasteCandidateRecorded) return
+        val listenedEnough = positionMs >= AUTOPLAY_TASTE_MINIMUM_MS ||
+            (durationMs > 0L && positionMs >= durationMs / 4 && positionMs >= AUTOPLAY_TASTE_MINIMUM_SHORT_MS)
+        if (listenedEnough) {
+            rememberAutoplayTaste(song)
+            autoplayTasteCandidateRecorded = true
+        }
+    }
 
     private var serviceLyricsJob: Job? = null
     private var serviceLyrics: List<LyricLine>? = null
@@ -2417,6 +2437,10 @@ class PlaybackService : MediaLibraryService() {
             return
         }
         val current = exoPlayer.currentMediaItem?.toSong() ?: return
+        if (autoplayTasteCandidateId != current.videoId) {
+            autoplayTasteCandidateId = current.videoId
+            autoplayTasteCandidateRecorded = false
+        }
         if (AppSettings.dontRepeatSuggestions.value) sessionSongHistory += current
         // In a party the server's queue is the one being topped up, and this
         // player's copy of it lags behind by however long reconcile is held off
@@ -2455,6 +2479,7 @@ class PlaybackService : MediaLibraryService() {
                     seedSong = current,
                     limit = remaining,
                     avoidAlternateVersions = AppSettings.dontRepeatSuggestions.value,
+                    tasteSeeds = autoplayTasteHistory,
                 )
                 val resolved = result.getOrElse {
                     TrackLog.w(
@@ -5181,6 +5206,9 @@ class PlaybackService : MediaLibraryService() {
         repeatAllStash = emptyList()
         repeatAllStashSeed = null
         sessionSongHistory.clear()
+        autoplayTasteHistory.clear()
+        autoplayTasteCandidateId = null
+        autoplayTasteCandidateRecorded = false
         persistedQueueStart = 0
         LastPlayed.clearImmediately()
     }
@@ -5383,6 +5411,9 @@ class PlaybackService : MediaLibraryService() {
                     lastPositionSeconds = player.currentPosition / 1000
                     player.currentMediaItem?.mediaId?.let {
                         PlaybackTracker.onProgress(it, lastPositionSeconds)
+                    }
+                    player.currentMediaItem?.toSong()?.let {
+                        recordAutoplayTasteIfEarned(it, player.currentPosition, player.duration)
                     }
                     // The device's own listening record — see [ListeningRecorder],
                     // which counts wall-clock time between ticks rather than
@@ -8328,6 +8359,13 @@ class PlaybackService : MediaLibraryService() {
 
         /** One fresh request is the fallback; normal track/queue changes re-arm it. */
         const val MAX_AUTOPLAY_EMPTY_REFRESHES = 1
+
+        /** Enough recent context for diversity without retaining an unbounded session. */
+        const val MAX_AUTOPLAY_TASTE_HISTORY = 32
+
+        /** Do not let a quick skip become a taste seed. */
+        const val AUTOPLAY_TASTE_MINIMUM_MS = 30_000L
+        const val AUTOPLAY_TASTE_MINIMUM_SHORT_MS = 10_000L
 
         /**
          * How long AutoPlay waits for the party to echo back the tracks it just
