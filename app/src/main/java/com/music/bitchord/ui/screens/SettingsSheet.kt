@@ -330,6 +330,26 @@ fun SettingsScreen(
             )
         }
     }
+    val autoplayDiagnosticsExportPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain"),
+    ) { target ->
+        if (target == null) return@rememberLauncherForActivityResult
+        backupScope.launch {
+            runCatching {
+                context.contentResolver.openOutputStream(target)?.use { output ->
+                    output.write(AutoplayDiagnostics.report().toByteArray(Charsets.UTF_8))
+                } ?: error("Could not open the selected file")
+            }.onSuccess {
+                Toast.makeText(context, "AutoPlay report saved", Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                Toast.makeText(
+                    context,
+                    "Could not save AutoPlay report: ${it.message ?: "unknown error"}",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
     val importPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { source ->
@@ -1549,11 +1569,18 @@ fun SettingsScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    clipboard.setText(AnnotatedString(AutoplayDiagnostics.report()))
-                    Toast.makeText(context, "AutoPlay report copied", Toast.LENGTH_SHORT).show()
-                }) {
-                    Text("Copy report")
+                Row {
+                    TextButton(onClick = {
+                        autoplayDiagnosticsExportPicker.launch("bitchord-autoplay-diagnostics.txt")
+                    }) {
+                        Text("Save report")
+                    }
+                    TextButton(onClick = {
+                        clipboard.setText(AnnotatedString(AutoplayDiagnostics.report()))
+                        Toast.makeText(context, "AutoPlay report copied", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Text("Copy")
+                    }
                 }
             },
             dismissButton = {

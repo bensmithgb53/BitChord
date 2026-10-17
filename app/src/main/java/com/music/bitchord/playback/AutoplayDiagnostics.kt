@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.asStateFlow
  * file paths. It is cleared when the process is killed or by the Settings UI.
  */
 object AutoplayDiagnostics {
-    private const val MAX_LINES = 160
     private val _lines = MutableStateFlow<List<String>>(emptyList())
     val lines: StateFlow<List<String>> = _lines.asStateFlow()
 
@@ -31,11 +30,11 @@ object AutoplayDiagnostics {
             selected.forEachIndexed { index, song -> add("  ${index + 1}. ${describe(song)}") }
             add("---")
         }
-        _lines.value = (_lines.value + block).takeLast(MAX_LINES)
+        _lines.value += block
     }
 
     fun recordFailure(message: String) {
-        _lines.value = (_lines.value + "AutoPlay failure: ${redact(message)}").takeLast(MAX_LINES)
+        _lines.value += "AutoPlay failure: ${redact(message)}"
     }
 
     fun clear() {
