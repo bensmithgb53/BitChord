@@ -2478,14 +2478,15 @@ class PlaybackService : MediaLibraryService() {
         val styleOf: (Song) -> Set<String> = { song ->
             ArtistFacts.genresFor(song.artist).toSet()
         }
-        val recentStyleSets = (listOf(current) + autoplayTasteHistory.takeLast(MAX_STYLE_LANE_SEEDS))
-            .map(styleOf)
-            .filter { it.isNotEmpty() }
-        val sharedRecentStyles = recentStyleSets
-            .drop(1)
-            .fold(recentStyleSets.firstOrNull().orEmpty()) { shared, styles -> shared intersect styles }
-        val adaptiveLaneExploration = recentStyleSets.size >= MIN_STYLE_LANE_SEEDS &&
-            sharedRecentStyles.isNotEmpty()
+        val olderPersonalTasteSeeds = AutoplayTasteStore.recentSeeds()
+            .filterNot { candidate -> candidate.videoId == current.videoId }
+            .filterNot { candidate -> autoplayTasteHistory.any { it.videoId == candidate.videoId } }
+        // Genre facts are useful when available, but must not be required: a
+        // fresh account often has no tags yet. Two earned AutoPlay listens plus
+        // one older non-Radio taste seed are enough evidence to escape a narrow
+        // session lane without naming or blocking any genre or artist.
+        val adaptiveLaneExploration = autoplayTasteHistory.size >= MIN_ADAPTIVE_TASTE_SEEDS &&
+            olderPersonalTasteSeeds.isNotEmpty()
         val exploreFromTaste = adaptiveLaneExploration ||
             autoplayRefillCount++ % AUTOPLAY_EXPLORATION_EVERY == AUTOPLAY_EXPLORATION_EVERY - 1
         autoplayLoadJob = scope.launch {
@@ -2510,7 +2511,7 @@ class PlaybackService : MediaLibraryService() {
                     queueSongs
                 }
                 val longTermSeeds = if (exploreFromTaste) {
-                    AutoplayTasteStore.recentSeeds().take(MAX_LONG_TERM_AUTOPLAY_SEEDS)
+                    olderPersonalTasteSeeds.take(MAX_LONG_TERM_AUTOPLAY_SEEDS)
                 } else {
                     emptyList()
                 }
@@ -2522,6 +2523,7 @@ class PlaybackService : MediaLibraryService() {
                     tasteSeeds = autoplayTasteHistory,
                     styleOf = styleOf,
                     exploreFromTaste = exploreFromTaste,
+                    adaptiveExploration = adaptiveLaneExploration,
                     longTermSeeds = longTermSeeds,
                     avoidArtists = autoplaySkippedArtists.toSet(),
                 )
@@ -8414,9 +8416,8 @@ class PlaybackService : MediaLibraryService() {
         /** Periodically escape a narrow related-song chain without hard-coded genres. */
         const val AUTOPLAY_EXPLORATION_EVERY = 4
 
-        /** Enough recent tagged seeds to detect a focused lane without overreacting. */
-        const val MAX_STYLE_LANE_SEEDS = 4
-        const val MIN_STYLE_LANE_SEEDS = 2
+        /** Do not adapt until the listener has earned at least two AutoPlay seeds. */
+        const val MIN_ADAPTIVE_TASTE_SEEDS = 2
 
         /** Small persistent-history sample used only on exploration refills. */
         const val MAX_LONG_TERM_AUTOPLAY_SEEDS = 12

@@ -107,6 +107,7 @@ suspend fun loadAutoplayTracks(
     tasteSeeds: List<Song> = emptyList(),
     styleOf: (Song) -> Set<String> = { emptySet() },
     exploreFromTaste: Boolean = false,
+    adaptiveExploration: Boolean = false,
     longTermSeeds: List<Song> = emptyList(),
     avoidArtists: Set<String> = emptySet(),
 ): Result<List<Song>> {
@@ -171,8 +172,8 @@ suspend fun loadAutoplayTracks(
         candidateCount = related.size,
         selected = extra,
         existingCount = existing.size,
-        adaptiveExploration = exploreFromTaste && persistentSeed != null &&
-            sharedRecentStyles.isNotEmpty(),
+        adaptiveExploration = adaptiveExploration || (exploreFromTaste && persistentSeed != null &&
+            sharedRecentStyles.isNotEmpty()),
     )
     if (extra.isEmpty()) return Result.success(emptyList())
 
