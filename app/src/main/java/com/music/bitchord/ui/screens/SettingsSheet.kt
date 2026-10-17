@@ -1204,6 +1204,19 @@ fun SettingsScreen(
                     onClick = onOpenReplay,
                 )
             }
+            val autoplayDiagnosticsTitle = "AutoPlay diagnostics"
+            row(autoplayDiagnosticsTitle, "autoplay", "radio", "recommendations", "log", "debug") {
+                SettingsRow(
+                    icon = Icons.Rounded.AutoAwesome,
+                    title = autoplayDiagnosticsTitle,
+                    subtitle = if (autoplayDiagnosticLines.isEmpty()) {
+                        "Save a privacy-safe recommendation report"
+                    } else {
+                        "${autoplayDiagnosticLines.size} report lines recorded"
+                    },
+                    onClick = { showAutoplayDiagnostics = true },
+                )
+            }
             val workOutGenresTitle = stringResource(R.string.work_out_genres)
             row(workOutGenresTitle, "genre", "replay") {
                 SettingsRow(
@@ -1250,19 +1263,6 @@ fun SettingsScreen(
         // No footer: it only restated the stop-on-close row's own subtitle,
         // which sits four rows above it and says the same thing in fewer words.
         SearchableSettingsGroup(search, header = stringResource(R.string.miscellaneous)) {
-            val autoplayDiagnosticsTitle = "AutoPlay diagnostics"
-            row(autoplayDiagnosticsTitle, "autoplay", "radio", "recommendations", "log", "debug") {
-                SettingsRow(
-                    icon = Icons.Rounded.AutoAwesome,
-                    title = autoplayDiagnosticsTitle,
-                    subtitle = if (autoplayDiagnosticLines.isEmpty()) {
-                        "Copy a privacy-safe recommendation report"
-                    } else {
-                        "${autoplayDiagnosticLines.size} report lines recorded"
-                    },
-                    onClick = { showAutoplayDiagnostics = true },
-                )
-            }
             val playNextOnSwipeTitle = stringResource(R.string.play_next_on_swipe)
             row(playNextOnSwipeTitle, "swipe", "queue") {
                 SettingsRow(
