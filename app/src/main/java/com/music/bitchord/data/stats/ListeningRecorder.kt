@@ -82,7 +82,9 @@ object ListeningRecorder {
         val counts = !playCounted && playedThisTrack >= threshold
         if (counts) playCounted = true
 
-        ListeningStats.record(enriched(song), step, counts)
+        val recordedSong = enriched(song)
+        ListeningStats.record(recordedSong, step, counts)
+        if (counts) AutoplayTasteStore.recordMeaningfulListen(recordedSong)
 
         if (++samplesSinceFlush >= FLUSH_EVERY) {
             samplesSinceFlush = 0

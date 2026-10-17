@@ -120,8 +120,7 @@ import com.music.bitchord.data.discord.discordAudioQualityLine
 import com.music.bitchord.data.innertube.PlaybackTracker
 import com.music.bitchord.data.stats.ListeningRecorder
 import com.music.bitchord.data.stats.ArtistFacts
-import com.music.bitchord.data.stats.ListeningStats
-import com.music.bitchord.data.stats.ReplayPeriod
+import com.music.bitchord.data.stats.AutoplayTasteStore
 import com.music.bitchord.data.innertube.PlayerClient
 import com.music.bitchord.data.innertube.StreamResolver
 import com.music.bitchord.data.model.LikeStatus
@@ -2500,11 +2499,7 @@ class PlaybackService : MediaLibraryService() {
                     queueSongs
                 }
                 val longTermSeeds = if (exploreFromTaste) {
-                    runCatching {
-                        ListeningStats.summary(ReplayPeriod.ALL_TIME).songs
-                            .take(MAX_LONG_TERM_AUTOPLAY_SEEDS)
-                            .map { it.song }
-                    }.getOrDefault(emptyList())
+                    AutoplayTasteStore.recentSeeds().take(MAX_LONG_TERM_AUTOPLAY_SEEDS)
                 } else {
                     emptyList()
                 }
