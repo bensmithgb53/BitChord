@@ -117,10 +117,22 @@ suspend fun loadAutoplayTracks(
     // Every few refills, let an older song the listener actually stayed with
     // lead the candidate pool. The current song remains included, so this is
     // exploration rather than abandoning relevance or hard-coding genres.
-    val persistentSeed = longTermSeeds
+    val recentStyleSets = (listOf(seedSong) + recentSeeds)
+        .map(styleOf)
+        .filter { it.isNotEmpty() }
+    val sharedRecentStyles = recentStyleSets
+        .drop(1)
+        .fold(recentStyleSets.firstOrNull().orEmpty()) { shared, styles -> shared intersect styles }
+    val persistentCandidates = longTermSeeds
         .filter { it.videoId != seedSong.videoId }
         .filterNot { candidate -> recentSeeds.any { it.videoId == candidate.videoId } }
-        .firstOrNull()
+    // When recent seeds collapse into one known lane, use an older seed outside
+    // that lane. This is based only on the listener's learned facts; it never
+    // names or blocks an artist or genre.
+    val persistentSeed = persistentCandidates.firstOrNull { candidate ->
+        sharedRecentStyles.isNotEmpty() &&
+            styleOf(candidate).none { it in sharedRecentStyles }
+    } ?: persistentCandidates.firstOrNull()
     val seeds = if (exploreFromTaste && persistentSeed != null) {
         listOf(persistentSeed, seedSong) + recentSeeds.take(MAX_TASTE_SEEDS - 2)
     } else if (exploreFromTaste && recentSeeds.isNotEmpty()) {
@@ -159,6 +171,8 @@ suspend fun loadAutoplayTracks(
         candidateCount = related.size,
         selected = extra,
         existingCount = existing.size,
+        adaptiveExploration = exploreFromTaste && persistentSeed != null &&
+            sharedRecentStyles.isNotEmpty(),
     )
     if (extra.isEmpty()) return Result.success(emptyList())
 

@@ -2475,8 +2475,19 @@ class PlaybackService : MediaLibraryService() {
         if (needed <= 0) return
         if (autoplaySeed == current.videoId) return
         autoplaySeed = current.videoId
-        val exploreFromTaste = autoplayRefillCount++ % AUTOPLAY_EXPLORATION_EVERY ==
-            AUTOPLAY_EXPLORATION_EVERY - 1
+        val styleOf: (Song) -> Set<String> = { song ->
+            ArtistFacts.genresFor(song.artist).toSet()
+        }
+        val recentStyleSets = (listOf(current) + autoplayTasteHistory.takeLast(MAX_STYLE_LANE_SEEDS))
+            .map(styleOf)
+            .filter { it.isNotEmpty() }
+        val sharedRecentStyles = recentStyleSets
+            .drop(1)
+            .fold(recentStyleSets.firstOrNull().orEmpty()) { shared, styles -> shared intersect styles }
+        val adaptiveLaneExploration = recentStyleSets.size >= MIN_STYLE_LANE_SEEDS &&
+            sharedRecentStyles.isNotEmpty()
+        val exploreFromTaste = adaptiveLaneExploration ||
+            autoplayRefillCount++ % AUTOPLAY_EXPLORATION_EVERY == AUTOPLAY_EXPLORATION_EVERY - 1
         autoplayLoadJob = scope.launch {
             var remaining = needed
             var emptyRefreshesRemaining = MAX_AUTOPLAY_EMPTY_REFRESHES
@@ -2509,7 +2520,7 @@ class PlaybackService : MediaLibraryService() {
                     limit = remaining,
                     avoidAlternateVersions = AppSettings.dontRepeatSuggestions.value,
                     tasteSeeds = autoplayTasteHistory,
-                    styleOf = { song -> ArtistFacts.genresFor(song.artist).toSet() },
+                    styleOf = styleOf,
                     exploreFromTaste = exploreFromTaste,
                     longTermSeeds = longTermSeeds,
                     avoidArtists = autoplaySkippedArtists.toSet(),
@@ -8402,6 +8413,10 @@ class PlaybackService : MediaLibraryService() {
 
         /** Periodically escape a narrow related-song chain without hard-coded genres. */
         const val AUTOPLAY_EXPLORATION_EVERY = 4
+
+        /** Enough recent tagged seeds to detect a focused lane without overreacting. */
+        const val MAX_STYLE_LANE_SEEDS = 4
+        const val MIN_STYLE_LANE_SEEDS = 2
 
         /** Small persistent-history sample used only on exploration refills. */
         const val MAX_LONG_TERM_AUTOPLAY_SEEDS = 12

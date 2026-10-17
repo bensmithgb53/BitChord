@@ -20,11 +20,13 @@ object AutoplayDiagnostics {
         candidateCount: Int,
         selected: List<Song>,
         existingCount: Int,
+        adaptiveExploration: Boolean = false,
     ) {
         val block = buildList {
             add("AutoPlay batch")
             add("seed: ${describe(seed)}")
             add("taste seeds used: ${tasteSeeds.size}; existing queue/history checked: $existingCount")
+            if (adaptiveExploration) add("adaptive lane exploration: older personal-taste seed added")
             add("related candidates received: $candidateCount")
             add("selected: ${selected.size}")
             selected.forEachIndexed { index, song -> add("  ${index + 1}. ${describe(song)}") }
