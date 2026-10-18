@@ -111,6 +111,7 @@ suspend fun loadAutoplayTracks(
     longTermSeeds: List<Song> = emptyList(),
     avoidArtists: Set<String> = emptySet(),
     sourceOffset: Int = 0,
+    excludeVideoIds: Set<String> = emptySet(),
 ): Result<List<Song>> {
     val recentSeeds = tasteSeeds.asReversed()
         .filter { it.videoId != seedSong.videoId }
@@ -163,7 +164,7 @@ suspend fun loadAutoplayTracks(
     val extra = if (pools.size <= 1) {
         QueueBuilder.extend(
             existing = existing,
-            candidates = related,
+            candidates = related.filterNot { it.videoId in excludeVideoIds },
             limit = limit,
             avoidAlternateVersions = avoidAlternateVersions,
             styleOf = styleOf,
@@ -191,7 +192,7 @@ suspend fun loadAutoplayTracks(
             val source = sourceOrder[round % sourceOrder.size]
             val pick = QueueBuilder.extend(
                 existing = existing + chosen,
-                candidates = pools[source],
+                candidates = pools[source].filterNot { it.videoId in excludeVideoIds },
                 limit = 1,
                 avoidAlternateVersions = avoidAlternateVersions,
                 styleOf = styleOf,

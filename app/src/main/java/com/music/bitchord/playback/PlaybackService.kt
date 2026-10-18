@@ -2467,6 +2467,7 @@ class PlaybackService : MediaLibraryService() {
             autoplayTasteCandidateId = current.videoId
             autoplayTasteCandidateRecorded = false
         }
+        AutoplayTasteStore.recordAutoplayPlayed(current)
         if (AppSettings.dontRepeatSuggestions.value) sessionSongHistory += current
         // In a party the server's queue is the one being topped up, and this
         // player's copy of it lags behind by however long reconcile is held off
@@ -2538,6 +2539,11 @@ class PlaybackService : MediaLibraryService() {
                     longTermSeeds = longTermSeeds,
                     avoidArtists = autoplaySkippedArtists.toSet(),
                     sourceOffset = autoplaySourceOffset++,
+                    excludeVideoIds = if (AppSettings.dontRepeatSuggestions.value) {
+                        AutoplayTasteStore.recentAutoplayPlayedIds()
+                    } else {
+                        emptySet()
+                    },
                 )
                 val resolved = result.getOrElse {
                     TrackLog.w(

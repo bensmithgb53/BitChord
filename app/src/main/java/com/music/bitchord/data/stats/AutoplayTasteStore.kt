@@ -16,20 +16,25 @@ import org.json.JSONObject
 object AutoplayTasteStore {
     private const val PREFS = "autoplay_taste_store"
     private const val KEY_SEEDS = "seeds"
+    private const val KEY_PLAYED = "recent_autoplay_played"
     /** Keep enough history for a long focused session not to erase older taste. */
     private const val MAX_SEEDS = 96
     /** Preserve artist breadth when one session contains many songs by one act. */
     private const val MAX_SEEDS_PER_ARTIST = 6
+    private const val MAX_PLAYED = 120
+    private const val PLAYED_RETENTION_MS = 14L * 24L * 60L * 60L * 1000L
 
     private var preferences: android.content.SharedPreferences? = null
     private val lock = Any()
     private val seeds = ArrayList<Song>()
+    private val played = LinkedHashMap<String, Long>()
 
     fun init(context: Context) {
         synchronized(lock) {
             if (preferences != null) return
             preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             loadLocked()
+            loadPlayedLocked()
         }
     }
 
@@ -53,6 +58,25 @@ object AutoplayTasteStore {
     /** Most recent eligible seeds, newest first for AutoPlay exploration. */
     fun recentSeeds(): List<Song> = synchronized(lock) { seeds.asReversed().toList() }
 
+    /** Records a reached AutoPlay item so a process restart cannot immediately replay it. */
+    fun recordAutoplayPlayed(song: Song) {
+        if (song.videoId.isBlank() || song.radioName != null || !song.fromAutoplay) return
+        synchronized(lock) {
+            if (preferences == null) return
+            prunePlayedLocked()
+            played.remove(song.videoId)
+            played[song.videoId] = System.currentTimeMillis()
+            while (played.size > MAX_PLAYED) played.remove(played.entries.first().key)
+            savePlayedLocked()
+        }
+    }
+
+    /** Stable IDs only; metadata and account information never leave this local store. */
+    fun recentAutoplayPlayedIds(): Set<String> = synchronized(lock) {
+        prunePlayedLocked()
+        played.keys.toSet()
+    }
+
     private fun artistKey(raw: String): String = raw
         .lowercase()
         .replace(Regex("\\s+"), " ")
@@ -75,6 +99,35 @@ object AutoplayTasteStore {
             }
         }.onFailure { seeds.clear() }
         while (seeds.size > MAX_SEEDS) seeds.removeAt(0)
+    }
+
+    private fun loadPlayedLocked() {
+        played.clear()
+        val raw = preferences?.getString(KEY_PLAYED, null) ?: return
+        runCatching {
+            val json = JSONArray(raw)
+            for (index in 0 until json.length()) {
+                val item = json.optJSONObject(index) ?: continue
+                val id = item.optString("id").takeIf { it.isNotBlank() } ?: continue
+                val at = item.optLong("at", 0L).takeIf { it > 0L } ?: continue
+                played[id] = at
+            }
+        }.onFailure { played.clear() }
+        prunePlayedLocked()
+    }
+
+    private fun prunePlayedLocked() {
+        val cutoff = System.currentTimeMillis() - PLAYED_RETENTION_MS
+        played.entries.removeIf { it.value < cutoff }
+        while (played.size > MAX_PLAYED) played.remove(played.entries.first().key)
+    }
+
+    private fun savePlayedLocked() {
+        val json = JSONArray()
+        played.forEach { (id, at) ->
+            json.put(JSONObject().put("id", id).put("at", at))
+        }
+        preferences?.edit()?.putString(KEY_PLAYED, json.toString())?.apply()
     }
 
     private fun saveLocked() {
