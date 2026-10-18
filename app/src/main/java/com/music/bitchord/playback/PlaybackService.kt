@@ -2491,7 +2491,10 @@ class PlaybackService : MediaLibraryService() {
         // session lane without naming or blocking any genre or artist.
         val adaptiveLaneExploration = autoplayTasteHistory.size >= MIN_ADAPTIVE_TASTE_SEEDS &&
             olderPersonalTasteSeeds.isNotEmpty()
-        val exploreFromTaste = adaptiveLaneExploration ||
+        // Once the listener has earned personal taste history, keep one
+        // long-term anchor in every refill. Intermittent exploration allowed
+        // a narrow current chain to dominate the first several refills.
+        val exploreFromTaste = olderPersonalTasteSeeds.isNotEmpty() ||
             autoplayRefillCount++ % AUTOPLAY_EXPLORATION_EVERY == AUTOPLAY_EXPLORATION_EVERY - 1
         autoplayLoadJob = scope.launch {
             var remaining = needed

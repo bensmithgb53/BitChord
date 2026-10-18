@@ -174,8 +174,17 @@ suspend fun loadAutoplayTracks(
         // recommendation lane can otherwise win every refill. Taking one
         // candidate per source in rotation preserves relevance while forcing
         // the current, recent, and older personal-taste lanes to share space.
-        val sourceOrder = pools.indices
-            .drop(sourceOffset.mod(pools.size)) + pools.indices.take(sourceOffset.mod(pools.size))
+        val sourceOrder = if (exploreFromTaste && longTermSeeds.isNotEmpty()) {
+            // Keep one personal-history anchor in every explored refill. Rotate
+            // the remaining current/recent pools, rather than rotating the
+            // anchor away and letting the current chain take over again.
+            val rotating = pools.indices.drop(1)
+            listOf(0) + rotating.drop(sourceOffset.mod(rotating.size.coerceAtLeast(1))) +
+                rotating.take(sourceOffset.mod(rotating.size.coerceAtLeast(1)))
+        } else {
+            pools.indices
+                .drop(sourceOffset.mod(pools.size)) + pools.indices.take(sourceOffset.mod(pools.size))
+        }
         val chosen = mutableListOf<Song>()
         var round = 0
         while (chosen.size < limit && round < pools.size * limit) {
@@ -204,6 +213,7 @@ suspend fun loadAutoplayTracks(
         adaptiveExploration = adaptiveExploration || (exploreFromTaste && persistentSeed != null &&
             sharedRecentStyles.isNotEmpty()),
         sourceAwareSelection = pools.size > 1,
+        longTermAnchor = exploreFromTaste && longTermSeeds.isNotEmpty(),
     )
     if (extra.isEmpty()) return Result.success(emptyList())
 
