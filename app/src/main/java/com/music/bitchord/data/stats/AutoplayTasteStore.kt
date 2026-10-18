@@ -16,7 +16,10 @@ import org.json.JSONObject
 object AutoplayTasteStore {
     private const val PREFS = "autoplay_taste_store"
     private const val KEY_SEEDS = "seeds"
-    private const val MAX_SEEDS = 24
+    /** Keep enough history for a long focused session not to erase older taste. */
+    private const val MAX_SEEDS = 96
+    /** Preserve artist breadth when one session contains many songs by one act. */
+    private const val MAX_SEEDS_PER_ARTIST = 6
 
     private var preferences: android.content.SharedPreferences? = null
     private val lock = Any()
@@ -37,6 +40,11 @@ object AutoplayTasteStore {
             if (preferences == null) return
             seeds.removeAll { it.videoId == song.videoId }
             seeds += song.copy(queueTier = com.music.bitchord.data.model.QueueTier.CONTEXT)
+            val artistKey = artistKey(song.artist)
+            val sameArtist = seeds.withIndex()
+                .filter { artistKey(it.value.artist) == artistKey }
+                .dropLast(MAX_SEEDS_PER_ARTIST)
+            sameArtist.asReversed().forEach { (index, _) -> seeds.removeAt(index) }
             while (seeds.size > MAX_SEEDS) seeds.removeAt(0)
             saveLocked()
         }
@@ -44,6 +52,11 @@ object AutoplayTasteStore {
 
     /** Most recent eligible seeds, newest first for AutoPlay exploration. */
     fun recentSeeds(): List<Song> = synchronized(lock) { seeds.asReversed().toList() }
+
+    private fun artistKey(raw: String): String = raw
+        .lowercase()
+        .replace(Regex("\\s+"), " ")
+        .trim()
 
     private fun loadLocked() {
         seeds.clear()
