@@ -94,6 +94,23 @@ suspend fun youtubeSeedFor(song: Song): String? {
         ?.videoId
 }
 
+/** Fetch actual songs by a saved personal-history artist, not related radio. */
+suspend fun directArtistTracks(seed: Song): List<Song> {
+    val artist = seed.artist.trim().substringBefore(",").trim()
+    if (artist.isBlank()) return emptyList()
+    return YtMusicRepository.search("$artist songs", SearchFilter.SONGS)
+        .getOrDefault(emptyList())
+        .mapNotNull { result ->
+            when (result) {
+                is SearchResult.Track -> result.song
+                is SearchResult.TopTrack -> result.song
+                is SearchResult.Browse -> null
+            }
+        }
+        .filter { it.artist.contains(artist, ignoreCase = true) }
+        .distinctBy { it.videoId }
+}
+
 /**
  * Loads, de-duplicates and resolves one AutoPlay batch. The playback service is
  * the only caller for the AutoPlay toggle; the player UI's explicit radio start
@@ -150,8 +167,14 @@ suspend fun loadAutoplayTracks(
         return Result.success(emptyList())
     }
     val responses = coroutineScope {
-        resolvedSeeds.map { (_, seed) ->
-            async { YtMusicRepository.radio(seed!!) }
+        resolvedSeeds.mapIndexed { index, (_, seed) ->
+            async {
+                if (index == 0 && exploreFromTaste && longTermSeeds.isNotEmpty()) {
+                    Result.success(directArtistTracks(seeds.first()))
+                } else {
+                    YtMusicRepository.radio(seed!!)
+                }
+            }
         }.awaitAll()
     }
     val failure = responses.firstNotNullOfOrNull { it.exceptionOrNull() }
