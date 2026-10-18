@@ -23,6 +23,7 @@ object AutoplayDiagnostics {
         adaptiveExploration: Boolean = false,
         sourceAwareSelection: Boolean = false,
         longTermAnchor: Boolean = false,
+        personalLanes: Int = 0,
     ) {
         val block = buildList {
             add("AutoPlay batch")
@@ -31,6 +32,7 @@ object AutoplayDiagnostics {
             if (adaptiveExploration) add("adaptive lane exploration: older personal-taste seed added")
             if (sourceAwareSelection) add("source-aware selection: recommendation pools rotated")
             if (longTermAnchor) add("long-term taste anchor: included in this refill")
+            if (personalLanes > 0) add("personal taste lanes reserved: $personalLanes")
             add("related candidates received: $candidateCount")
             add("selected: ${selected.size}")
             selected.forEachIndexed { index, song -> add("  ${index + 1}. ${describe(song)}") }

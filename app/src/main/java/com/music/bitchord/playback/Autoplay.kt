@@ -153,8 +153,21 @@ suspend fun loadAutoplayTracks(
         sharedRecentStyles.isNotEmpty() &&
             styleOf(candidate).none { it in sharedRecentStyles }
     } ?: persistentCandidates.firstOrNull()
-    val seeds = if (exploreFromTaste && persistentSeed != null) {
-        listOf(persistentSeed, seedSong) + recentSeeds.take(MAX_TASTE_SEEDS - 2)
+    val personalLanes = if (exploreFromTaste) {
+        buildList {
+            persistentSeed?.let(::add)
+            persistentCandidates.firstOrNull { candidate ->
+                candidate.videoId != persistentSeed?.videoId &&
+                    (styleOf(candidate).isEmpty() ||
+                        styleOf(candidate).none { tag -> styleOf(persistentSeed ?: candidate).contains(tag) })
+            }?.let(::add)
+            if (isEmpty()) persistentCandidates.firstOrNull()?.let(::add)
+        }.distinctBy { it.videoId }.take(2)
+    } else {
+        emptyList()
+    }
+    val seeds = if (personalLanes.isNotEmpty()) {
+        personalLanes + listOf(seedSong) + recentSeeds.take(MAX_TASTE_SEEDS - personalLanes.size - 1)
     } else if (exploreFromTaste && recentSeeds.isNotEmpty()) {
         listOf(recentSeeds.last(), seedSong) + recentSeeds.dropLast(1)
     } else {
@@ -169,8 +182,8 @@ suspend fun loadAutoplayTracks(
     val responses = coroutineScope {
         resolvedSeeds.mapIndexed { index, (_, seed) ->
             async {
-                if (index == 0 && exploreFromTaste && longTermSeeds.isNotEmpty()) {
-                    Result.success(directArtistTracks(seeds.first()))
+                if (index < personalLanes.size) {
+                    Result.success(directArtistTracks(seeds[index]))
                 } else {
                     YtMusicRepository.radio(seed!!)
                 }
@@ -198,12 +211,12 @@ suspend fun loadAutoplayTracks(
         // recommendation lane can otherwise win every refill. Taking one
         // candidate per source in rotation preserves relevance while forcing
         // the current, recent, and older personal-taste lanes to share space.
-        val sourceOrder = if (exploreFromTaste && longTermSeeds.isNotEmpty()) {
-            // Keep one personal-history anchor in every explored refill. Rotate
-            // the remaining current/recent pools, rather than rotating the
-            // anchor away and letting the current chain take over again.
-            val rotating = pools.indices.drop(1)
-            listOf(0) + rotating.drop(sourceOffset.mod(rotating.size.coerceAtLeast(1))) +
+        val sourceOrder = if (personalLanes.isNotEmpty()) {
+            // Keep both personal-history lanes ahead of discovery pools. Rotate
+            // only the current/recent sources so neither personal lane vanishes.
+            val anchors = pools.indices.take(personalLanes.size)
+            val rotating = pools.indices.drop(personalLanes.size)
+            anchors + rotating.drop(sourceOffset.mod(rotating.size.coerceAtLeast(1))) +
                 rotating.take(sourceOffset.mod(rotating.size.coerceAtLeast(1)))
         } else {
             pools.indices
@@ -238,6 +251,7 @@ suspend fun loadAutoplayTracks(
             sharedRecentStyles.isNotEmpty()),
         sourceAwareSelection = pools.size > 1,
         longTermAnchor = exploreFromTaste && longTermSeeds.isNotEmpty(),
+        personalLanes = personalLanes.size,
     )
     if (extra.isEmpty()) return Result.success(emptyList())
 
