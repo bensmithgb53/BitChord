@@ -2527,9 +2527,7 @@ class PlaybackService : MediaLibraryService() {
                     existing = existing,
                     seedSong = current,
                     limit = remaining,
-                    // AutoPlay should not fill a personal mix with alternate
-                    // cuts just because the optional session-repeat switch is off.
-                    avoidAlternateVersions = true,
+                    avoidAlternateVersions = AppSettings.dontRepeatSuggestions.value,
                     tasteSeeds = autoplayTasteHistory,
                     styleOf = styleOf,
                     exploreFromTaste = exploreFromTaste,
