@@ -790,6 +790,8 @@ class PlaybackService : MediaLibraryService() {
     private var autoplayTasteCandidateSong: Song? = null
     /** Every fourth refill escapes the immediate recommendation chain. */
     private var autoplayRefillCount = 0
+    /** Round-robin cursor so adaptive exploration does not reuse one old lane. */
+    private var autoplayExplorationSeedOffset = 0
     private var autoplayTasteCandidateId: String? = null
     private var autoplayTasteCandidateRecorded = false
 
@@ -2511,7 +2513,11 @@ class PlaybackService : MediaLibraryService() {
                     queueSongs
                 }
                 val longTermSeeds = if (exploreFromTaste) {
-                    olderPersonalTasteSeeds.take(MAX_LONG_TERM_AUTOPLAY_SEEDS)
+                    val pool = olderPersonalTasteSeeds.take(MAX_LONG_TERM_AUTOPLAY_SEEDS)
+                    if (pool.isEmpty()) emptyList() else {
+                        val offset = autoplayExplorationSeedOffset++ % pool.size
+                        pool.drop(offset) + pool.take(offset)
+                    }
                 } else {
                     emptyList()
                 }
@@ -5257,6 +5263,7 @@ class PlaybackService : MediaLibraryService() {
         autoplaySkippedArtists.clear()
         autoplayTasteCandidateSong = null
         autoplayRefillCount = 0
+        autoplayExplorationSeedOffset = 0
         autoplayTasteCandidateId = null
         autoplayTasteCandidateRecorded = false
         persistedQueueStart = 0
