@@ -110,6 +110,7 @@ suspend fun loadAutoplayTracks(
     adaptiveExploration: Boolean = false,
     longTermSeeds: List<Song> = emptyList(),
     avoidArtists: Set<String> = emptySet(),
+    sourceOffset: Int = 0,
 ): Result<List<Song>> {
     val recentSeeds = tasteSeeds.asReversed()
         .filter { it.videoId != seedSong.videoId }
@@ -157,15 +158,43 @@ suspend fun loadAutoplayTracks(
         AutoplayDiagnostics.recordFailure("all recommendation requests failed")
         return Result.failure(failure ?: Exception("AutoPlay radio unavailable"))
     }
-    val related = responses.flatMap { it.getOrDefault(emptyList()) }
-    val extra = QueueBuilder.extend(
-        existing = existing,
-        candidates = related,
-        limit = limit,
-        avoidAlternateVersions = avoidAlternateVersions,
-        styleOf = styleOf,
-        avoidArtists = avoidArtists,
-    )
+    val pools = responses.map { it.getOrDefault(emptyList()) }
+    val related = pools.flatten()
+    val extra = if (pools.size <= 1) {
+        QueueBuilder.extend(
+            existing = existing,
+            candidates = related,
+            limit = limit,
+            avoidAlternateVersions = avoidAlternateVersions,
+            styleOf = styleOf,
+            avoidArtists = avoidArtists,
+        )
+    } else {
+        // Do not merge all seed responses before ranking. A single dominant
+        // recommendation lane can otherwise win every refill. Taking one
+        // candidate per source in rotation preserves relevance while forcing
+        // the current, recent, and older personal-taste lanes to share space.
+        val sourceOrder = pools.indices
+            .drop(sourceOffset.mod(pools.size)) + pools.indices.take(sourceOffset.mod(pools.size))
+        val chosen = mutableListOf<Song>()
+        var round = 0
+        while (chosen.size < limit && round < pools.size * limit) {
+            val source = sourceOrder[round % sourceOrder.size]
+            val pick = QueueBuilder.extend(
+                existing = existing + chosen,
+                candidates = pools[source],
+                limit = 1,
+                avoidAlternateVersions = avoidAlternateVersions,
+                styleOf = styleOf,
+                avoidArtists = avoidArtists,
+            ).firstOrNull()
+            if (pick != null && chosen.none { QueueBuilder.isSameRecording(it, pick) }) {
+                chosen += pick
+            }
+            round++
+        }
+        chosen
+    }
     AutoplayDiagnostics.recordBatch(
         seed = seedSong,
         tasteSeeds = seeds.drop(1),
@@ -174,6 +203,7 @@ suspend fun loadAutoplayTracks(
         existingCount = existing.size,
         adaptiveExploration = adaptiveExploration || (exploreFromTaste && persistentSeed != null &&
             sharedRecentStyles.isNotEmpty()),
+        sourceAwareSelection = pools.size > 1,
     )
     if (extra.isEmpty()) return Result.success(emptyList())
 

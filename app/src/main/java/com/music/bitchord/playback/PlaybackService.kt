@@ -792,6 +792,8 @@ class PlaybackService : MediaLibraryService() {
     private var autoplayRefillCount = 0
     /** Round-robin cursor so adaptive exploration does not reuse one old lane. */
     private var autoplayExplorationSeedOffset = 0
+    /** Round-robin cursor across current/recent/older recommendation pools. */
+    private var autoplaySourceOffset = 0
     private var autoplayTasteCandidateId: String? = null
     private var autoplayTasteCandidateRecorded = false
 
@@ -2532,6 +2534,7 @@ class PlaybackService : MediaLibraryService() {
                     adaptiveExploration = adaptiveLaneExploration,
                     longTermSeeds = longTermSeeds,
                     avoidArtists = autoplaySkippedArtists.toSet(),
+                    sourceOffset = autoplaySourceOffset++,
                 )
                 val resolved = result.getOrElse {
                     TrackLog.w(
@@ -5264,6 +5267,7 @@ class PlaybackService : MediaLibraryService() {
         autoplayTasteCandidateSong = null
         autoplayRefillCount = 0
         autoplayExplorationSeedOffset = 0
+        autoplaySourceOffset = 0
         autoplayTasteCandidateId = null
         autoplayTasteCandidateRecorded = false
         persistedQueueStart = 0
