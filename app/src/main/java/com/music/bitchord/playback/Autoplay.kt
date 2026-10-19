@@ -207,38 +207,39 @@ suspend fun loadAutoplayTracks(
             avoidArtists = avoidArtists,
         )
     } else {
-        // Do not merge all seed responses before ranking. A single dominant
-        // recommendation lane can otherwise win every refill. Taking one
-        // candidate per source in rotation preserves relevance while forcing
-        // the current, recent, and older personal-taste lanes to share space.
-        val sourceOrder = if (personalLanes.isNotEmpty()) {
-            // Keep both personal-history lanes ahead of discovery pools. Rotate
-            // only the current/recent sources so neither personal lane vanishes.
-            val anchors = pools.indices.take(personalLanes.size)
-            val rotating = pools.indices.drop(personalLanes.size)
-            anchors + rotating.drop(sourceOffset.mod(rotating.size.coerceAtLeast(1))) +
-                rotating.take(sourceOffset.mod(rotating.size.coerceAtLeast(1)))
-        } else {
-            pools.indices
-                .drop(sourceOffset.mod(pools.size)) + pools.indices.take(sourceOffset.mod(pools.size))
-        }
         val chosen = mutableListOf<Song>()
-        var round = 0
-        while (chosen.size < limit && round < pools.size * limit) {
-            val source = sourceOrder[round % sourceOrder.size]
-            val pick = QueueBuilder.extend(
+        // Personal lanes are mandatory when a full batch is being built: a
+        // discovery result may not displace both learned taste lanes anymore.
+        val laneCount = personalLanes.size.coerceAtMost(limit)
+        val laneIndexes = if (laneCount == personalLanes.size) {
+            pools.indices.take(laneCount)
+        } else if (laneCount > 0) {
+            listOf(sourceOffset.mod(personalLanes.size))
+        } else {
+            emptyList()
+        }
+        laneIndexes.forEach { source ->
+            QueueBuilder.extend(
                 existing = existing + chosen,
                 candidates = pools[source].filterNot { it.videoId in excludeVideoIds },
                 limit = 1,
                 avoidAlternateVersions = avoidAlternateVersions,
                 styleOf = styleOf,
                 avoidArtists = avoidArtists,
-            ).firstOrNull()
-            if (pick != null && chosen.none { QueueBuilder.isSameRecording(it, pick) }) {
-                chosen += pick
+            ).firstOrNull()?.let { pick ->
+                if (chosen.none { QueueBuilder.isSameRecording(it, pick) }) chosen += pick
             }
-            round++
         }
+        val discovery = pools.drop(personalLanes.size).flatten()
+            .filterNot { it.videoId in excludeVideoIds }
+        chosen += QueueBuilder.extendDiverse(
+            existing = existing + chosen,
+            candidates = discovery,
+            limit = (limit - chosen.size).coerceAtLeast(0),
+            avoidAlternateVersions = avoidAlternateVersions,
+            styleOf = styleOf,
+            avoidArtists = avoidArtists,
+        )
         chosen
     }
     AutoplayDiagnostics.recordBatch(

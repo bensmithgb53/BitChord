@@ -107,6 +107,40 @@ object QueueBuilder {
     }
 
     /**
+     * Fills a mix by preferring a style signature not already selected in this
+     * batch. Unknown styles remain eligible, so missing metadata never makes a
+     * queue empty; it only means artist diversity is the fallback.
+     */
+    fun extendDiverse(
+        existing: List<Song>,
+        candidates: List<Song>,
+        limit: Int,
+        avoidAlternateVersions: Boolean = false,
+        styleOf: (Song) -> Set<String> = { emptySet() },
+        avoidArtists: Set<String> = emptySet(),
+    ): List<Song> {
+        val selected = mutableListOf<Song>()
+        while (selected.size < limit) {
+            val seenStyles = selected.flatMap(styleOf).toSet()
+            val novel = candidates.filter { song ->
+                val styles = styleOf(song)
+                styles.isNotEmpty() && styles.none { it in seenStyles }
+            }
+            val pool = if (novel.isNotEmpty()) novel else candidates
+            val next = extend(
+                existing = existing + selected,
+                candidates = pool,
+                limit = 1,
+                avoidAlternateVersions = avoidAlternateVersions,
+                styleOf = styleOf,
+                avoidArtists = avoidArtists,
+            ).firstOrNull() ?: break
+            selected += next
+        }
+        return selected
+    }
+
+    /**
      * Prefer a known style outside the recent lane, but never let an unknown
      * style displace a known relevant candidate. With no style facts available
      * this returns zero, preserving the existing ranking exactly.
