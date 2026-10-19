@@ -83,4 +83,26 @@ class QueueBuilderRemixTest {
 
         assertEquals(listOf("fresh"), queue.map { it.videoId })
     }
+
+    @Test
+    fun recentArtistCannotBeatAnAvailableNewArtistInARefill() {
+        val recent = listOf(
+            song("r1", "Recent one", "Eminem"),
+            song("r2", "Recent two", "Rihanna"),
+            song("r3", "Recent three", "Justin Bieber"),
+            song("r4", "Recent four", "N-Dubz"),
+            song("r5", "Recent five", "Ed Sheeran"),
+            song("r6", "Recent six", "Flo Rida"),
+        )
+        val queue = QueueBuilder.extend(
+            existing = recent,
+            candidates = listOf(
+                song("repeat", "Another Eminem song", "Eminem"),
+                song("fresh", "A new artist song", "New Artist"),
+            ),
+            limit = 1,
+        )
+
+        assertEquals(listOf("fresh"), queue.map { it.videoId })
+    }
 }

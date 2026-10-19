@@ -69,13 +69,21 @@ object QueueBuilder {
         val remaining = (songsOnly.ifEmpty { candidates }).toMutableList()
 
         while (remaining.isNotEmpty() && out.size < limit) {
-            val candidate = remaining.minWithOrNull(
+            // A recent artist may still be the only usable fallback, but it
+            // must not beat a valid non-recent artist merely because its
+            // style is a closer match. This is what prevents one-song refills
+            // from forming Eminem/Benzarh/Thekidszn-style chains.
+            val cooled = remaining.filterNot { song ->
+                artistSet(song.artist).any { it in recentArtists }
+            }
+            val rankingPool = cooled.ifEmpty { remaining }
+            val candidate = rankingPool.minWithOrNull(
                 compareBy<Song> { song ->
                     if (artistSet(song.artist).any { it in avoidArtists }) 1 else 0
                 }.thenBy { song ->
-                    styleDistance(song, recentStyles, styleOf)
-                }.thenBy { song ->
                     if (artistSet(song.artist).any { it in recentArtists }) 1 else 0
+                }.thenBy { song ->
+                    styleDistance(song, recentStyles, styleOf)
                 }.thenBy { song ->
                     artistSet(song.artist).maxOfOrNull { perArtist[it] ?: 0 } ?: 0
                 }.thenBy { isRemix(it.title) },
