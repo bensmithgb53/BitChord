@@ -65,4 +65,22 @@ class QueueBuilderRemixTest {
 
         assertEquals(listOf("second"), queue.map { it.videoId })
     }
+
+    @Test
+    fun noRepeatTreatsCommonVersionLabelsAsTheSameSongFamily() {
+        val queue = QueueBuilder.extend(
+            existing = listOf(song("original", "Hall of Fame")),
+            candidates = listOf(
+                song("acoustic", "Hall of Fame - Acoustic Version"),
+                song("radio", "Hall of Fame (Radio Edit)"),
+                song("demo", "Hall of Fame [Demo]"),
+                song("instrumental", "Hall of Fame Instrumental"),
+                song("fresh", "Breakeven"),
+            ),
+            limit = 10,
+            avoidAlternateVersions = true,
+        )
+
+        assertEquals(listOf("fresh"), queue.map { it.videoId })
+    }
 }

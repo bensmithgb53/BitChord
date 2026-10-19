@@ -237,7 +237,7 @@ suspend fun loadAutoplayTracks(
             .flatMap { QueueBuilder.artistSet(it.artist) }
             .toSet()
         val explorationTarget = when {
-            limit >= 6 -> 2
+            limit >= 6 -> 3
             sourceOffset % NEW_ARTIST_EXPLORATION_EVERY == 0 -> 1
             else -> 0
         }

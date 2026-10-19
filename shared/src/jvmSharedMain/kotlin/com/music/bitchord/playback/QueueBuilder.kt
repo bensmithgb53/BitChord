@@ -200,7 +200,7 @@ object QueueBuilder {
     /** Removes version subtitles from title-family comparisons only. */
     private fun mixFamilyTitle(title: String): String = normalisedTitle(
         title.replace(VERSION_PARENTHETICAL, " "),
-    ).replace(TRAILING_MIX_LABEL, "").trim()
+    ).replace(TRAILING_MIX_LABEL, "").replace(TRAILING_VERSION_LABEL, "").trim()
 
     /**
      * `Kesariya (From "Brahmastra") | Official Video` and `Kesariya` are one
@@ -230,12 +230,16 @@ object QueueBuilder {
         RegexOption.IGNORE_CASE,
     )
     private val MIX_LABEL = Regex(
-        """\b(?:remix|re[\s-]?mix|(?:club|extended|dance|radio|house|dub|vip)\s+mix)\b""",
+        """\b(?:remix|re[\s-]?mix|(?:club|extended|dance|radio|house|dub|vip)\s+mix|acoustic|demo|instrumental|karaoke|live|cover|sped[\s-]?up|slowed|nightcore|8d)\b""",
         RegexOption.IGNORE_CASE,
     )
     private val VERSION_PARENTHETICAL = Regex("""\s*[\(\[][^)\]]*[)\]]""")
     private val TRAILING_MIX_LABEL = Regex(
         """\s+(?:(?:[\p{L}\p{N}'’&.]+\s+){0,4})?(?:remix|re[\s-]?mix|mix)\s*$""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val TRAILING_VERSION_LABEL = Regex(
+        """\s+(?:acoustic|demo|instrumental|karaoke|live|cover|radio\s+edit|single\s+edit|edit|sped[\s-]?up|slowed|nightcore|8d)(?:\s+version)?\s*$""",
         RegexOption.IGNORE_CASE,
     )
     /** Recent enough to reduce a streak without making an artist disappear. */
