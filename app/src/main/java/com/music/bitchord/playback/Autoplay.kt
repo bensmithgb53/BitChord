@@ -197,6 +197,7 @@ suspend fun loadAutoplayTracks(
     }
     val pools = responses.map { it.getOrDefault(emptyList()) }
     val related = pools.flatten()
+    var newArtistSelections = 0
     val extra = if (pools.size <= 1) {
         QueueBuilder.extend(
             existing = existing,
@@ -232,6 +233,33 @@ suspend fun loadAutoplayTracks(
         }
         val discovery = pools.drop(personalLanes.size).flatten()
             .filterNot { it.videoId in excludeVideoIds }
+        val knownArtists = (existing + seeds + longTermSeeds)
+            .flatMap { QueueBuilder.artistSet(it.artist) }
+            .toSet()
+        val explorationTarget = when {
+            limit >= 6 -> 2
+            sourceOffset % NEW_ARTIST_EXPLORATION_EVERY == 0 -> 1
+            else -> 0
+        }
+        repeat(explorationTarget) {
+            val alreadyExplored = chosen.flatMap { QueueBuilder.artistSet(it.artist) }.toSet()
+            val unseen = discovery.filter { candidate ->
+                val artists = QueueBuilder.artistSet(candidate.artist)
+                artists.isNotEmpty() &&
+                    artists.none { it in knownArtists || it in alreadyExplored }
+            }
+            QueueBuilder.extend(
+                existing = existing + chosen,
+                candidates = unseen,
+                limit = 1,
+                avoidAlternateVersions = avoidAlternateVersions,
+                styleOf = styleOf,
+                avoidArtists = avoidArtists,
+            ).firstOrNull()?.let { pick ->
+                chosen += pick
+                newArtistSelections++
+            }
+        }
         chosen += QueueBuilder.extendDiverse(
             existing = existing + chosen,
             candidates = discovery,
@@ -253,6 +281,7 @@ suspend fun loadAutoplayTracks(
         sourceAwareSelection = pools.size > 1,
         longTermAnchor = exploreFromTaste && longTermSeeds.isNotEmpty(),
         personalLanes = personalLanes.size,
+        newArtistSelections = newArtistSelections,
     )
     if (extra.isEmpty()) return Result.success(emptyList())
 
@@ -268,3 +297,4 @@ suspend fun loadAutoplayTracks(
 
 /** More than one seed prevents a single autoplay chain from defining the whole queue. */
 private const val MAX_TASTE_SEEDS = 4
+private const val NEW_ARTIST_EXPLORATION_EVERY = 4

@@ -24,6 +24,7 @@ object AutoplayDiagnostics {
         sourceAwareSelection: Boolean = false,
         longTermAnchor: Boolean = false,
         personalLanes: Int = 0,
+        newArtistSelections: Int = 0,
     ) {
         val block = buildList {
             add("AutoPlay batch")
@@ -33,6 +34,7 @@ object AutoplayDiagnostics {
             if (sourceAwareSelection) add("source-aware selection: recommendation pools rotated")
             if (longTermAnchor) add("long-term taste anchor: included in this refill")
             if (personalLanes > 0) add("personal taste lanes reserved: $personalLanes")
+            if (newArtistSelections > 0) add("new-artist exploration selected: $newArtistSelections")
             add("related candidates received: $candidateCount")
             add("selected: ${selected.size}")
             selected.forEachIndexed { index, song -> add("  ${index + 1}. ${describe(song)}") }
