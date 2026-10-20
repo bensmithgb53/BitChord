@@ -211,7 +211,10 @@ suspend fun loadAutoplayTracks(
         val chosen = mutableListOf<Song>()
         // Personal lanes are mandatory when a full batch is being built: a
         // discovery result may not displace both learned taste lanes anymore.
-        val laneCount = personalLanes.size.coerceAtMost(limit)
+        // Personal lanes are reserved for a full batch. A one-song refill
+        // must use the discovery pools; otherwise every refill selects the
+        // first long-term taste lane and the queue collapses into one style.
+        val laneCount = if (limit >= 2) personalLanes.size.coerceAtMost(limit) else 0
         val laneIndexes = if (laneCount == personalLanes.size) {
             pools.indices.take(laneCount)
         } else if (laneCount > 0) {
@@ -280,7 +283,7 @@ suspend fun loadAutoplayTracks(
             sharedRecentStyles.isNotEmpty()),
         sourceAwareSelection = pools.size > 1,
         longTermAnchor = exploreFromTaste && longTermSeeds.isNotEmpty(),
-        personalLanes = personalLanes.size,
+        personalLanes = if (limit >= 2) personalLanes.size else 0,
         newArtistSelections = newArtistSelections,
     )
     if (extra.isEmpty()) return Result.success(emptyList())
