@@ -2537,7 +2537,8 @@ class PlaybackService : MediaLibraryService() {
                     exploreFromTaste = exploreFromTaste,
                     adaptiveExploration = adaptiveLaneExploration,
                     longTermSeeds = longTermSeeds,
-                    avoidArtists = autoplaySkippedArtists.toSet(),
+                    avoidArtists = autoplaySkippedArtists.toSet() +
+                        AutoplayTasteStore.recentAutoplayArtistKeys(),
                     sourceOffset = autoplaySourceOffset++,
                     excludeVideoIds = if (AppSettings.dontRepeatSuggestions.value) {
                         AutoplayTasteStore.recentAutoplayPlayedIds()

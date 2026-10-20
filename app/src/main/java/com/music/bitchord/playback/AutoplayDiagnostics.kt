@@ -1,18 +1,36 @@
 package com.music.bitchord.playback
 
+import android.content.Context
 import com.music.bitchord.data.model.Song
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
 
 /**
- * Small, in-memory AutoPlay report for troubleshooting recommendation quality.
- * Deliberately never stores video IDs, URLs, tokens, cookies, account IDs, or
- * file paths. It is cleared when the process is killed or by the Settings UI.
+ * Privacy-safe AutoPlay report for troubleshooting recommendation quality.
+ * It stores only redacted titles, artists, and counters locally. It never stores
+ * video IDs, URLs, tokens, cookies, account IDs, or file paths, and never uploads.
  */
 object AutoplayDiagnostics {
+    private const val PREFS = "autoplay_diagnostics"
+    private const val KEY_LINES = "lines"
+    private const val MAX_LINES = 4000
+    private var preferences: android.content.SharedPreferences? = null
     private val _lines = MutableStateFlow<List<String>>(emptyList())
     val lines: StateFlow<List<String>> = _lines.asStateFlow()
+
+    fun init(context: Context) {
+        if (preferences != null) return
+        preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val loaded = runCatching {
+            val json = JSONArray(preferences?.getString(KEY_LINES, "[]") ?: "[]")
+            buildList {
+                for (index in 0 until json.length()) add(json.optString(index))
+            }
+        }.getOrDefault(emptyList())
+        _lines.value = loaded.takeLast(MAX_LINES)
+    }
 
     fun recordBatch(
         seed: Song,
@@ -40,21 +58,28 @@ object AutoplayDiagnostics {
             selected.forEachIndexed { index, song -> add("  ${index + 1}. ${describe(song)}") }
             add("---")
         }
-        _lines.value += block
+        appendLines(block)
     }
 
-    fun recordFailure(message: String) {
-        _lines.value += "AutoPlay failure: ${redact(message)}"
+    fun recordFailure(message: String) = appendLines(listOf("AutoPlay failure: ${redact(message)}"))
+
+    private fun appendLines(newLines: List<String>) {
+        val updated = (_lines.value + newLines).takeLast(MAX_LINES)
+        _lines.value = updated
+        val json = JSONArray()
+        updated.forEach(json::put)
+        preferences?.edit()?.putString(KEY_LINES, json.toString())?.apply()
     }
 
     fun clear() {
         _lines.value = emptyList()
+        preferences?.edit()?.remove(KEY_LINES)?.apply()
     }
 
     fun report(): String = buildString {
         appendLine("BitChord AutoPlay diagnostics")
         appendLine("Privacy: no video IDs, URLs, tokens, cookies, account IDs, or file paths are included.")
-        appendLine("The report is kept in memory only and is not uploaded by this feature.")
+        appendLine("The report is stored locally only and is not uploaded by this feature.")
         appendLine()
         if (_lines.value.isEmpty()) appendLine("No AutoPlay batches recorded yet.")
         else _lines.value.forEach(::appendLine)

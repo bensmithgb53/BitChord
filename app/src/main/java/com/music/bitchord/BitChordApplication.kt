@@ -129,6 +129,7 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory {
         // both live in this process — one owner, one directory.
         ListeningStats.init(this)
         AutoplayTasteStore.init(this)
+        com.music.bitchord.playback.AutoplayDiagnostics.init(this)
         // After AppSettings, whose switch decides whether half of it runs.
         ArtistFacts.init(this)
         // One cache directory can only be opened once per process, and
