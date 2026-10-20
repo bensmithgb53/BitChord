@@ -234,7 +234,22 @@ suspend fun loadAutoplayTracks(
                 if (chosen.none { QueueBuilder.isSameRecording(it, pick) }) chosen += pick
             }
         }
-        val discovery = pools.drop(personalLanes.size).flatten()
+        val discoveryPools = pools.drop(personalLanes.size)
+            .map { pool -> pool.filterNot { it.videoId in excludeVideoIds } }
+        val discovery = discoveryPools.flatten()
+        // A one-song refill must not merge every YouTube response into one
+        // ranking pool. The current seed's lane is usually the largest and
+        // would otherwise win repeatedly. Rotate the source pool itself so
+        // successive refills alternate between the current song and older
+        // personal-history seeds before falling back to the combined pool.
+        val rotatedSingleRefillPool = if (limit == 1 && discoveryPools.isNotEmpty()) {
+            val offset = sourceOffset.mod(discoveryPools.size)
+            (discoveryPools.drop(offset) + discoveryPools.take(offset))
+                .firstOrNull { it.isNotEmpty() }
+                .orEmpty()
+        } else {
+            emptyList()
+        }
             .filterNot { it.videoId in excludeVideoIds }
         val knownArtists = (existing + seeds + longTermSeeds)
             .flatMap { QueueBuilder.artistSet(it.artist) }
@@ -263,9 +278,14 @@ suspend fun loadAutoplayTracks(
                 newArtistSelections++
             }
         }
+        val fillCandidates = if (limit == 1 && rotatedSingleRefillPool.isNotEmpty()) {
+            rotatedSingleRefillPool
+        } else {
+            discovery
+        }
         chosen += QueueBuilder.extendDiverse(
             existing = existing + chosen,
-            candidates = discovery,
+            candidates = fillCandidates,
             limit = (limit - chosen.size).coerceAtLeast(0),
             avoidAlternateVersions = avoidAlternateVersions,
             styleOf = styleOf,
