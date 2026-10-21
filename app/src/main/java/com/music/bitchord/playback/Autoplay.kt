@@ -238,13 +238,17 @@ suspend fun loadAutoplayTracks(
             .map { pool -> pool.filterNot { it.videoId in excludeVideoIds } }
         val discovery = discoveryPools.flatten()
         // A one-song refill must not merge every YouTube response into one
-        // ranking pool. The current seed's lane is usually the largest and
-        // would otherwise win repeatedly. Rotate the source pool itself so
-        // successive refills alternate between the current song and older
-        // personal-history seeds before falling back to the combined pool.
-        val rotatedSingleRefillPool = if (limit == 1 && discoveryPools.isNotEmpty()) {
-            val offset = sourceOffset.mod(discoveryPools.size)
-            (discoveryPools.drop(offset) + discoveryPools.take(offset))
+        // ranking pool. The old implementation also dropped the personal
+        // history pools here, which made later refills forget the listener's
+        // familiar artists and drift into obscure current-seed suggestions.
+        // Rotate every independent source pool instead: direct personal-artist
+        // pools are included, but no single pool can dominate the chain.
+        val refillPools = pools.map { pool ->
+            pool.filterNot { it.videoId in excludeVideoIds }
+        }
+        val rotatedSingleRefillPool = if (limit == 1 && refillPools.isNotEmpty()) {
+            val offset = sourceOffset.mod(refillPools.size)
+            (refillPools.drop(offset) + refillPools.take(offset))
                 .firstOrNull { it.isNotEmpty() }
                 .orEmpty()
         } else {
