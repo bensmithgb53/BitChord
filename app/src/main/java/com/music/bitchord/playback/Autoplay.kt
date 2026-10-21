@@ -277,30 +277,15 @@ suspend fun loadAutoplayTracks(
                 styleOf = styleOf,
                 avoidArtists = avoidArtists,
             ).firstOrNull()?.let { pick ->
-                if (chosen.none { QueueBuilder.isSameRecording(it, pick) }) chosen += pick
+                if (chosen.none { QueueBuilder.isSameRecording(it, pick) }) {
+                    chosen += pick
+                    selectedSources += "personal-$source"
+                }
             }
         }
         val discoveryPools = sourcePools.drop(personalLanes.size)
             .map { it.second.filterNot { song -> song.videoId in excludeVideoIds } }
         val discoveryCandidates = discoveryPools.flatten()
-        // A one-song refill must not merge every YouTube response into one
-        // ranking pool. The old implementation also dropped the personal
-        // history pools here, which made later refills forget the listener's
-        // familiar artists and drift into obscure current-seed suggestions.
-        // Rotate every independent source pool instead: direct personal-artist
-        // pools are included, but no single pool can dominate the chain.
-        val refillPools = pools.map { pool ->
-            pool.filterNot { it.videoId in excludeVideoIds }
-        }
-        val rotatedSingleRefillPool = if (limit == 1 && refillPools.isNotEmpty()) {
-            val offset = sourceOffset.mod(refillPools.size)
-            (refillPools.drop(offset) + refillPools.take(offset))
-                .firstOrNull { it.isNotEmpty() }
-                .orEmpty()
-        } else {
-            emptyList()
-        }
-            .filterNot { it.videoId in excludeVideoIds }
         val knownArtists = (existing + seeds + longTermSeeds)
             .flatMap { QueueBuilder.artistSet(it.artist) }
             .toSet()
@@ -329,8 +314,13 @@ suspend fun loadAutoplayTracks(
                 selectedSources += "exploration"
             }
         }
-        val fillPoolEntries = if (limit == 1 && rotatedSingleRefillPool.isNotEmpty()) {
-            listOf("rotated" to rotatedSingleRefillPool)
+        // Keep one-song refills source-aware too. Do not merge the pools into a
+        // synthetic "rotated" list: that hides which lane won and lets the
+        // ranking function repeatedly favour one style. Rotating the actual
+        // named pools preserves personal, radio, and discovery diversity while
+        // still allowing empty pools to be skipped safely.
+        val fillPoolEntries = if (limit == 1) {
+            sourcePools
         } else {
             sourcePools.drop(personalLanes.size)
         }
