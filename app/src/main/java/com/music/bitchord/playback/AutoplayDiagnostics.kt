@@ -43,6 +43,8 @@ object AutoplayDiagnostics {
         longTermAnchor: Boolean = false,
         personalLanes: Int = 0,
         newArtistSelections: Int = 0,
+        sourcePools: List<Pair<String, Int>> = emptyList(),
+        selectedSources: List<String> = emptyList(),
     ) {
         val block = buildList {
             add("AutoPlay batch")
@@ -53,6 +55,13 @@ object AutoplayDiagnostics {
             if (longTermAnchor) add("long-term taste anchor: included in this refill")
             if (personalLanes > 0) add("personal taste lanes reserved: $personalLanes")
             if (newArtistSelections > 0) add("new-artist exploration selected: $newArtistSelections")
+            if (sourcePools.isNotEmpty()) {
+                val summary = sourcePools.joinToString { entry -> "${entry.first}=${entry.second}" }
+                add("source buckets: $summary")
+            }
+            if (selectedSources.isNotEmpty()) {
+                add("selected source order: ${selectedSources.joinToString(" -> ")}")
+            }
             add("related candidates received: $candidateCount")
             add("selected: ${selected.size}")
             selected.forEachIndexed { index, song -> add("  ${index + 1}. ${describe(song)}") }

@@ -2,6 +2,7 @@ package com.music.bitchord.playback
 
 import com.music.bitchord.data.YtMusicRepository
 import com.music.bitchord.data.listentogether.ListenTogether
+import com.music.bitchord.data.innertube.InnertubeParser
 import com.music.bitchord.data.model.SearchFilter
 import com.music.bitchord.data.model.SearchResult
 import com.music.bitchord.data.model.QueueTier
@@ -111,6 +112,39 @@ suspend fun directArtistTracks(seed: Song): List<Song> {
         .distinctBy { it.videoId }
 }
 
+/** Candidate bucket independent of the current song's YouTube radio lane. */
+suspend fun independentDiscoveryTracks(excludeVideoIds: Set<String>): List<Song> = coroutineScope {
+    val quickPicks = async {
+        YtMusicRepository.quickPicks(excludeVideoIds).getOrDefault(emptyList())
+    }
+    val moodTiles = async {
+        YtMusicRepository.moodAndGenres().getOrDefault(emptyList())
+            .flatMap { it.items }
+            .distinctBy { it.browseId }
+            .take(MAX_DISCOVERY_MOOD_TILES)
+    }
+    val moodSongs = moodTiles.await().map { tile ->
+        async {
+            YtMusicRepository.moodGenreShelves(tile.browseId, tile.params)
+                .getOrDefault(emptyList())
+                .flatMap { shelf -> shelf.items.mapNotNull { item ->
+                    item.videoId?.let { id ->
+                        Song(
+                            videoId = id,
+                            title = item.title,
+                            artist = InnertubeParser.artistFromSubtitle(item.subtitle),
+                            thumbnailUrl = item.thumbnailUrl,
+                        )
+                    }
+                } }
+        }
+    }.awaitAll().flatten()
+    (quickPicks.await() + moodSongs)
+        .filterNot { it.videoId in excludeVideoIds }
+        .distinctBy { it.videoId }
+        .take(MAX_DISCOVERY_CANDIDATES)
+}
+
 /**
  * Loads, de-duplicates and resolves one AutoPlay batch. The playback service is
  * the only caller for the AutoPlay toggle; the player UI's explicit radio start
@@ -196,9 +230,21 @@ suspend fun loadAutoplayTracks(
         return Result.failure(failure ?: Exception("AutoPlay radio unavailable"))
     }
     val pools = responses.map { it.getOrDefault(emptyList()) }
-    val related = pools.flatten()
+    val discoveryEnabled = exploreFromTaste && (limit >= 6 || sourceOffset % DISCOVERY_EVERY == 0)
+    val discovery = if (discoveryEnabled) {
+        independentDiscoveryTracks(
+            excludeVideoIds + existing.map { it.videoId }.toSet() + seeds.map { it.videoId }.toSet(),
+        )
+    } else {
+        emptyList()
+    }
+    val sourcePools = pools.mapIndexed { index, pool ->
+        "${if (index < personalLanes.size) "personal" else "radio"}-$index" to pool
+    } + listOf("discovery" to discovery)
+    val related = sourcePools.flatMap { it.second }
     var newArtistSelections = 0
-    val extra = if (pools.size <= 1) {
+    val selectedSources = mutableListOf<String>()
+    val extra = if (sourcePools.size <= 1) {
         QueueBuilder.extend(
             existing = existing,
             candidates = related.filterNot { it.videoId in excludeVideoIds },
@@ -234,9 +280,9 @@ suspend fun loadAutoplayTracks(
                 if (chosen.none { QueueBuilder.isSameRecording(it, pick) }) chosen += pick
             }
         }
-        val discoveryPools = pools.drop(personalLanes.size)
-            .map { pool -> pool.filterNot { it.videoId in excludeVideoIds } }
-        val discovery = discoveryPools.flatten()
+        val discoveryPools = sourcePools.drop(personalLanes.size)
+            .map { it.second.filterNot { song -> song.videoId in excludeVideoIds } }
+        val discoveryCandidates = discoveryPools.flatten()
         // A one-song refill must not merge every YouTube response into one
         // ranking pool. The old implementation also dropped the personal
         // history pools here, which made later refills forget the listener's
@@ -265,7 +311,7 @@ suspend fun loadAutoplayTracks(
         }
         repeat(explorationTarget) {
             val alreadyExplored = chosen.flatMap { QueueBuilder.artistSet(it.artist) }.toSet()
-            val unseen = discovery.filter { candidate ->
+            val unseen = discoveryCandidates.filter { candidate ->
                 val artists = QueueBuilder.artistSet(candidate.artist)
                 artists.isNotEmpty() &&
                     artists.none { it in knownArtists || it in alreadyExplored }
@@ -280,21 +326,37 @@ suspend fun loadAutoplayTracks(
             ).firstOrNull()?.let { pick ->
                 chosen += pick
                 newArtistSelections++
+                selectedSources += "exploration"
             }
         }
-        val fillCandidates = if (limit == 1 && rotatedSingleRefillPool.isNotEmpty()) {
-            rotatedSingleRefillPool
+        val fillPoolEntries = if (limit == 1 && rotatedSingleRefillPool.isNotEmpty()) {
+            listOf("rotated" to rotatedSingleRefillPool)
         } else {
-            discovery
+            sourcePools.drop(personalLanes.size)
         }
-        chosen += QueueBuilder.extendDiverse(
-            existing = existing + chosen,
-            candidates = fillCandidates,
-            limit = (limit - chosen.size).coerceAtLeast(0),
-            avoidAlternateVersions = avoidAlternateVersions,
-            styleOf = styleOf,
-            avoidArtists = avoidArtists,
-        )
+        var rotation = sourceOffset.mod(fillPoolEntries.size.coerceAtLeast(1))
+        while (chosen.size < limit && fillPoolEntries.any { it.second.isNotEmpty() }) {
+            var added = false
+            repeat(fillPoolEntries.size) {
+                if (chosen.size >= limit) return@repeat
+                val entry = fillPoolEntries[rotation.mod(fillPoolEntries.size)]
+                rotation++
+                val pick = QueueBuilder.extend(
+                    existing = existing + chosen,
+                    candidates = entry.second.filterNot { it.videoId in excludeVideoIds },
+                    limit = 1,
+                    avoidAlternateVersions = avoidAlternateVersions,
+                    styleOf = styleOf,
+                    avoidArtists = avoidArtists,
+                ).firstOrNull()
+                if (pick != null && chosen.none { QueueBuilder.isSameRecording(it, pick) }) {
+                    chosen += pick
+                    selectedSources += entry.first
+                    added = true
+                }
+            }
+            if (!added) break
+        }
         chosen
     }
     AutoplayDiagnostics.recordBatch(
@@ -309,6 +371,8 @@ suspend fun loadAutoplayTracks(
         longTermAnchor = exploreFromTaste && longTermSeeds.isNotEmpty(),
         personalLanes = if (limit >= 2) personalLanes.size else 0,
         newArtistSelections = newArtistSelections,
+        sourcePools = sourcePools.map { (name, pool) -> name to pool.size },
+        selectedSources = selectedSources,
     )
     if (extra.isEmpty()) return Result.success(emptyList())
 
@@ -325,3 +389,6 @@ suspend fun loadAutoplayTracks(
 /** More than one seed prevents a single autoplay chain from defining the whole queue. */
 private const val MAX_TASTE_SEEDS = 4
 private const val NEW_ARTIST_EXPLORATION_EVERY = 4
+private const val DISCOVERY_EVERY = 4
+private const val MAX_DISCOVERY_MOOD_TILES = 4
+private const val MAX_DISCOVERY_CANDIDATES = 80
