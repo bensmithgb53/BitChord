@@ -119,6 +119,8 @@ import com.music.bitchord.data.discord.DiscordRPC
 import com.music.bitchord.data.discord.discordAudioQualityLine
 import com.music.bitchord.data.innertube.PlaybackTracker
 import com.music.bitchord.data.stats.ListeningRecorder
+import com.music.bitchord.data.stats.ListeningStats
+import com.music.bitchord.data.stats.ReplayPeriod
 import com.music.bitchord.data.stats.ArtistFacts
 import com.music.bitchord.data.stats.AutoplayTasteStore
 import com.music.bitchord.data.innertube.PlayerClient
@@ -2483,21 +2485,39 @@ class PlaybackService : MediaLibraryService() {
         val styleOf: (Song) -> Set<String> = { song ->
             ArtistFacts.genresFor(song.artist).toSet()
         }
-        val olderPersonalTasteSeeds = AutoplayTasteStore.recentSeeds()
-            .filterNot { candidate -> candidate.videoId == current.videoId }
-            .filterNot { candidate -> autoplayTasteHistory.any { it.videoId == candidate.videoId } }
-        // Genre facts are useful when available, but must not be required: a
-        // fresh account often has no tags yet. Two earned AutoPlay listens plus
-        // one older non-Radio taste seed are enough evidence to escape a narrow
-        // session lane without naming or blocking any genre or artist.
-        val adaptiveLaneExploration = autoplayTasteHistory.size >= MIN_ADAPTIVE_TASTE_SEEDS &&
-            olderPersonalTasteSeeds.isNotEmpty()
-        // Once the listener has earned personal taste history, keep one
-        // long-term anchor in every refill. Intermittent exploration allowed
-        // a narrow current chain to dominate the first several refills.
-        val exploreFromTaste = olderPersonalTasteSeeds.isNotEmpty() ||
-            autoplayRefillCount++ % AUTOPLAY_EXPLORATION_EVERY == AUTOPLAY_EXPLORATION_EVERY - 1
         autoplayLoadJob = scope.launch {
+            val allTimeHistorySeeds = runCatching {
+                ListeningStats.summary(ReplayPeriod.ALL_TIME).songs.map { it.song }
+            }.getOrDefault(emptyList())
+            val historyCandidates = (allTimeHistorySeeds + AutoplayTasteStore.recentSeeds())
+                .filter { it.radioName == null }
+                .filterNot { candidate -> candidate.videoId == current.videoId }
+                .filterNot { candidate -> autoplayTasteHistory.any { it.videoId == candidate.videoId } }
+                .distinctBy { it.videoId }
+            // Build a round-robin history sample by artist before asking
+            // YouTube for recommendations. Completed AutoPlay tracks cannot
+            // crowd out songs played manually in other parts of the app, and
+            // one artist cannot occupy the whole long-term seed list.
+            val seedsByArtist = historyCandidates.groupBy { candidate ->
+                QueueBuilder.artistSet(candidate.artist).firstOrNull() ?: candidate.artist.lowercase()
+            }
+            val olderPersonalTasteSeeds = buildList {
+                var index = 0
+                while (size < MAX_LONG_TERM_AUTOPLAY_SEEDS &&
+                    seedsByArtist.values.any { index < it.size }
+                ) {
+                    seedsByArtist.values.forEach { artistSeeds ->
+                        artistSeeds.getOrNull(index)?.let(::add)
+                    }
+                    index++
+                }
+            }
+            // Genre facts are useful when available, but are not required:
+            // independent seed lanes still work when YouTube supplies no tags.
+            val adaptiveLaneExploration = autoplayTasteHistory.size >= MIN_ADAPTIVE_TASTE_SEEDS &&
+                olderPersonalTasteSeeds.isNotEmpty()
+            val exploreFromTaste = olderPersonalTasteSeeds.isNotEmpty() ||
+                autoplayRefillCount++ % AUTOPLAY_EXPLORATION_EVERY == AUTOPLAY_EXPLORATION_EVERY - 1
             var remaining = needed
             var emptyRefreshesRemaining = MAX_AUTOPLAY_EMPTY_REFRESHES
             while (isActive) {
