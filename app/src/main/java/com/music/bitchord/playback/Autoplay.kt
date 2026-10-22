@@ -188,6 +188,10 @@ suspend fun loadAutoplayTracks(
             styleOf(candidate).none { it in sharedRecentStyles }
     } ?: persistentCandidates.firstOrNull()
     val personalLanes = if (exploreFromTaste) {
+        // Reserve up to three different artists from the listener's own
+        // history. The first lane escapes the current style when possible;
+        // the remaining lanes deliberately recall older familiar artists that
+        // YouTube's related-radio response may never return by itself.
         buildList {
             persistentSeed?.let(::add)
             persistentCandidates.firstOrNull { candidate ->
@@ -195,8 +199,12 @@ suspend fun loadAutoplayTracks(
                     (styleOf(candidate).isEmpty() ||
                         styleOf(candidate).none { tag -> styleOf(persistentSeed ?: candidate).contains(tag) })
             }?.let(::add)
-            if (isEmpty()) persistentCandidates.firstOrNull()?.let(::add)
-        }.distinctBy { it.videoId }.take(2)
+            persistentCandidates.forEach { candidate ->
+                if (none { it.videoId == candidate.videoId }) add(candidate)
+            }
+        }.distinctBy { candidate ->
+            QueueBuilder.artistSet(candidate.artist).firstOrNull() ?: candidate.videoId
+        }.take(3)
     } else {
         emptyList()
     }
