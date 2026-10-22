@@ -127,6 +127,7 @@ import com.music.bitchord.data.innertube.PlayerClient
 import com.music.bitchord.data.innertube.StreamResolver
 import com.music.bitchord.data.model.LikeStatus
 import com.music.bitchord.data.model.Song
+import com.music.bitchord.data.model.durationMillis
 import com.music.bitchord.data.scrobbling.LastFM
 import com.music.bitchord.data.scrobbling.ListenBrainzManager
 import com.music.bitchord.data.scrobbling.ScrobbleManager
@@ -798,6 +799,8 @@ class PlaybackService : MediaLibraryService() {
     private var autoplaySourceOffset = 0
     private var autoplayTasteCandidateId: String? = null
     private var autoplayTasteCandidateRecorded = false
+    /** Duration of the outgoing track, retained because the player has moved on at skip time. */
+    private var lastTrackDurationMs = 0L
 
     private fun rememberAutoplayTaste(song: Song) {
         autoplayTasteHistory.removeAll { it.videoId == song.videoId }
@@ -820,7 +823,15 @@ class PlaybackService : MediaLibraryService() {
     private fun recordAutoplaySkip(previousEnded: Boolean) {
         val song = autoplayTasteCandidateSong ?: return
         if (previousEnded || !song.fromAutoplay) return
-        if (lastPositionSeconds * 1000L < AUTOPLAY_SKIP_FEEDBACK_MINIMUM_MS) return
+        val positionMs = lastPositionSeconds * 1000L
+        if (positionMs < AUTOPLAY_SKIP_FEEDBACK_MINIMUM_MS) return
+        // A late skip is often just a long outro, a fade, or the listener
+        // moving on after hearing the song. It must not punish the artist.
+        val nearEnd = lastTrackDurationMs > 0L && (
+            positionMs >= (lastTrackDurationMs * AUTOPLAY_NEAR_END_SKIP_PROGRESS).toLong() ||
+                lastTrackDurationMs - positionMs <= AUTOPLAY_NEAR_END_SKIP_GRACE_MS
+            )
+        if (nearEnd) return
         autoplayTasteHistory.removeAll { it.videoId == song.videoId }
         QueueBuilder.artistSet(song.artist).firstOrNull()?.let { artist ->
             autoplaySkippedArtists.remove(artist)
@@ -2465,6 +2476,7 @@ class PlaybackService : MediaLibraryService() {
         }
         val current = exoPlayer.currentMediaItem?.toSong() ?: return
         autoplayTasteCandidateSong = current
+        lastTrackDurationMs = exoPlayer.duration.takeIf { it > 0L } ?: current.durationMillis()
         if (autoplayTasteCandidateId != current.videoId) {
             autoplayTasteCandidateId = current.videoId
             autoplayTasteCandidateRecorded = false
@@ -3089,6 +3101,7 @@ class PlaybackService : MediaLibraryService() {
         ListeningRecorder.onStopped()
         val newSong = mediaItem?.toSong()
         val durationMs = exoPlayer.duration.takeIf { it > 0 }
+        lastTrackDurationMs = durationMs ?: newSong?.durationMillis() ?: 0L
         if (exoPlayer.isPlaying) {
             scrobbleManager?.onSongStart(newSong, durationMs)
         }
@@ -5300,6 +5313,7 @@ class PlaybackService : MediaLibraryService() {
         autoplaySourceOffset = 0
         autoplayTasteCandidateId = null
         autoplayTasteCandidateRecorded = false
+        lastTrackDurationMs = 0L
         persistedQueueStart = 0
         LastPlayed.clearImmediately()
     }
@@ -8464,6 +8478,9 @@ class PlaybackService : MediaLibraryService() {
         const val MAX_LONG_TERM_AUTOPLAY_SEEDS = 12
         /** A skip around the user's reported 35-second point is feedback, not a like. */
         const val AUTOPLAY_SKIP_FEEDBACK_MINIMUM_MS = 30_000L
+        /** Late skips are commonly long outros or a listener moving on after hearing the song. */
+        const val AUTOPLAY_NEAR_END_SKIP_GRACE_MS = 45_000L
+        const val AUTOPLAY_NEAR_END_SKIP_PROGRESS = 0.80
         const val MAX_AUTOPLAY_SKIPPED_ARTISTS = 8
 
         /** Do not let a quick skip become a taste seed. */
