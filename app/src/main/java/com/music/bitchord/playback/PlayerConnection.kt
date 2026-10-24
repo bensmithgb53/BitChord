@@ -377,6 +377,30 @@ fun rememberPlayerState(controller: MediaController?): PlayerState {
             delay(500)
         }
     }
+
+    // A remote MediaController can occasionally coalesce an append into a
+    // session update without delivering the matching timeline callback to the
+    // UI listener. AutoPlay has still been accepted by the service in that
+    // case, but the queue sheet keeps the old snapshot and says it is empty.
+    // Reconcile only while this screen is visible, and only when the count
+    // differs, so this is a cheap safety net rather than a second full queue
+    // conversion on every playback tick.
+    LaunchedEffect(controller, foreground) {
+        while (controller != null && foreground) {
+            val active = controller ?: break
+            if (active.mediaItemCount != state.queue.size) {
+                val refreshed = (0 until active.mediaItemCount)
+                    .map { active.getMediaItemAt(it).toSong() }
+                state = state.copy(
+                    queue = refreshed,
+                    queueIndex = active.currentMediaItemIndex,
+                    hasPrevious = active.hasPreviousMediaItem(),
+                    hasNext = active.hasNextMediaItem(),
+                )
+            }
+            delay(250)
+        }
+    }
     return state
 }
 
