@@ -343,7 +343,14 @@ fun rememberPlayerState(controller: MediaController?): PlayerState {
             }
             override fun onEvents(p: Player, events: Player.Events) = sync(
                 error = state.error,
-                rebuildQueue = queueChanged.also { queueChanged = false },
+                // Some Media3 session implementations deliver the batched
+                // timeline event without first invoking onTimelineChanged on
+                // the controller listener. Compare the count here as a
+                // second guard so AutoPlay appended by the service cannot be
+                // present in diagnostics but absent from the player queue UI.
+                rebuildQueue = (queueChanged ||
+                    (events.contains(Player.EVENT_TIMELINE_CHANGED) &&
+                        p.mediaItemCount != queueSnapshot.size)).also { queueChanged = false },
                 refreshCurrentQueueItem = events.contains(Player.EVENT_MEDIA_METADATA_CHANGED),
             )
             override fun onPlayerErrorChanged(error: androidx.media3.common.PlaybackException?) {

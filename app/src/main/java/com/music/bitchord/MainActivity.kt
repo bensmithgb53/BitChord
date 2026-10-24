@@ -1397,12 +1397,25 @@ private fun BitChordApp(
             val currentTimeline = player.queue.takeIf { it.size == c.mediaItemCount }
                 ?: (0 until c.mediaItemCount).map { c.getMediaItemAt(it).toSong() }
             val currentIndex = c.currentMediaItemIndex
-            val oneOffQueue = QueueCoordinator.buildOneOffQueue(
-                currentTimeline = currentTimeline,
-                currentIndex = currentIndex,
-                tappedSong = song,
-                source = source,
-            )
+            // A search hit is one deliberate song, not the other rows returned
+            // for the same query. Start it alone so stale context suggestions
+            // cannot remain visible or play before AutoPlay gets a chance to
+            // build its own queue. Explicit album/playlist playback uses
+            // playFrom and keeps its surrounding context separately.
+            val oneOffQueue = if (source.type == PlaybackSourceType.SEARCH) {
+                listOf(song.copy(
+                    playbackSource = source.title,
+                    playbackSourceType = source.type,
+                    playbackSourceId = source.id,
+                ).asQueueEntry(QueueTier.CONTEXT))
+            } else {
+                QueueCoordinator.buildOneOffQueue(
+                    currentTimeline = currentTimeline,
+                    currentIndex = currentIndex,
+                    tappedSong = song,
+                    source = source,
+                )
+            }
             c.playSongs(oneOffQueue, 0)
             // Start radio in the mini-player; the user opens the full view by tapping it.
         }
