@@ -300,6 +300,17 @@ fun rememberPlayerState(controller: MediaController?): PlayerState {
                     queueSnapshot = queueSnapshot.toMutableList().also { it[index] = item.toSong() }
                 }
             }
+            // During a playlist append Media3 may briefly expose INDEX_UNSET
+            // even though currentMediaItem is already available. Passing -1 to
+            // the queue UI makes splitQueue return EMPTY, which looks exactly
+            // like AutoPlay failed to load. Recover the index from the current
+            // media id while the timeline settles.
+            val visibleIndex = player.currentMediaItemIndex.takeIf {
+                it in queueSnapshot.indices
+            } ?: item?.mediaId?.let { id ->
+                queueSnapshot.indexOfFirst { song -> song.videoId == id }
+                    .takeIf { it >= 0 }
+            } ?: player.currentMediaItemIndex
             // Synced here too, so seeking while paused or buffering still moves
             // the scrubber (the poll loop only runs on play).
             position.report(player.currentPosition.coerceAtLeast(0L))
@@ -311,7 +322,7 @@ fun rememberPlayerState(controller: MediaController?): PlayerState {
                 isLoading = player.playbackState == Player.STATE_BUFFERING,
                 repeatMode = player.repeatMode,
                 queue = queueSnapshot,
-                queueIndex = player.currentMediaItemIndex,
+                queueIndex = visibleIndex,
                 hasPrevious = player.hasPreviousMediaItem(),
                 hasNext = player.hasNextMediaItem(),
                 isQualityUpgraded = item?.mediaMetadata?.extras
@@ -388,12 +399,19 @@ fun rememberPlayerState(controller: MediaController?): PlayerState {
     LaunchedEffect(controller, foreground) {
         while (controller != null && foreground) {
             val active = controller ?: break
-            if (active.mediaItemCount != state.queue.size) {
+            if (active.mediaItemCount != state.queue.size ||
+                state.queueIndex !in 0 until active.mediaItemCount) {
                 val refreshed = (0 until active.mediaItemCount)
                     .map { active.getMediaItemAt(it).toSong() }
+                val visibleIndex = active.currentMediaItemIndex.takeIf {
+                    it in refreshed.indices
+                } ?: active.currentMediaItem?.mediaId?.let { id ->
+                    refreshed.indexOfFirst { song -> song.videoId == id }
+                        .takeIf { it >= 0 }
+                } ?: active.currentMediaItemIndex
                 state = state.copy(
                     queue = refreshed,
-                    queueIndex = active.currentMediaItemIndex,
+                    queueIndex = visibleIndex,
                     hasPrevious = active.hasPreviousMediaItem(),
                     hasNext = active.hasNextMediaItem(),
                 )
