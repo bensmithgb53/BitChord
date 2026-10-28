@@ -298,8 +298,11 @@ suspend fun loadAutoplayTracks(
             .flatMap { QueueBuilder.artistSet(it.artist) }
             .toSet()
         val explorationTarget = when {
-            limit >= 6 -> 3
-            sourceOffset % NEW_ARTIST_EXPLORATION_EVERY == 0 -> 1
+            // A full batch gets one unfamiliar artist on an exploration refill,
+            // not three unrelated tracks on every refill. The remaining picks
+            // still come from the current/recent radio pools.
+            limit >= 6 && exploreFromTaste -> 1
+            exploreFromTaste && sourceOffset % NEW_ARTIST_EXPLORATION_EVERY == 0 -> 1
             else -> 0
         }
         repeat(explorationTarget) {

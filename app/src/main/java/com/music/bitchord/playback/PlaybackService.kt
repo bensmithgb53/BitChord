@@ -2528,8 +2528,13 @@ class PlaybackService : MediaLibraryService() {
             // independent seed lanes still work when YouTube supplies no tags.
             val adaptiveLaneExploration = autoplayTasteHistory.size >= MIN_ADAPTIVE_TASTE_SEEDS &&
                 olderPersonalTasteSeeds.isNotEmpty()
-            val exploreFromTaste = olderPersonalTasteSeeds.isNotEmpty() ||
-                autoplayRefillCount++ % AUTOPLAY_EXPLORATION_EVERY == AUTOPLAY_EXPLORATION_EVERY - 1
+            // Keep the current/recent radio lane in charge most of the time.
+            // Long-term history is useful for an occasional fresh direction,
+            // but enabling it whenever history exists makes a station drift
+            // away from the song that started it after only one refill.
+            val refillNumber = autoplayRefillCount++
+            val exploreFromTaste = olderPersonalTasteSeeds.isNotEmpty() &&
+                refillNumber % AUTOPLAY_EXPLORATION_EVERY == AUTOPLAY_EXPLORATION_EVERY - 1
             var remaining = needed
             var emptyRefreshesRemaining = MAX_AUTOPLAY_EMPTY_REFRESHES
             while (isActive) {

@@ -149,9 +149,10 @@ object QueueBuilder {
     }
 
     /**
-     * Prefer a known style outside the recent lane, but never let an unknown
-     * style displace a known relevant candidate. With no style facts available
-     * this returns zero, preserving the existing ranking exactly.
+     * Prefer a candidate that remains in the recent style lane. A different
+     * artist is still allowed through the artist cooldown and source rotation,
+     * but a style change is no longer rewarded by default. This keeps a station
+     * coherent without naming a genre, year, song, or artist in code.
      */
     private fun styleDistance(
         song: Song,
@@ -160,8 +161,8 @@ object QueueBuilder {
     ): Int {
         if (recentStyles.isEmpty()) return 0
         val styles = styleOf(song)
-        if (styles.isEmpty()) return 2
-        return if (styles.any { it !in recentStyles }) 0 else 1
+        if (styles.isEmpty()) return 1
+        return if (styles.any { it in recentStyles }) 0 else 1
     }
 
     /**
