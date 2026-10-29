@@ -1078,11 +1078,13 @@ class PlaybackService : MediaLibraryService() {
                 listenBrainzSong = null
                 listenBrainzStartMs = 0L
                 listenBrainzDurationMs = null
-                // A missed/empty AutoPlay response can let the last queued
+                // A missed/empty AutoPlay response can let the last restored
                 // track finish before anything is appended. There will be no
-                // item transition to run the ordinary refill path, so give the
-                // still-enabled empty queue another chance here.
-                refreshAutoplayIfQueueEmpty()
+                // item transition to run the ordinary refill path. Do not let
+                // a stale loader job suppress this retry: Android Auto can
+                // reach this callback after the phone UI has gone away, and a
+                // shuffle edit should not be required to wake AutoPlay.
+                restartAutoplayAfterQueueEnded()
             }
         }
 
@@ -2699,6 +2701,29 @@ class PlaybackService : MediaLibraryService() {
         ) {
             return
         }
+        autoplayLoadJob = null
+        autoplaySeed = null
+        loadAutoplayForCurrentTrack()
+    }
+
+    /**
+     * Re-arm AutoPlay after playback reaches the end with no next item.
+     *
+     * This is deliberately stronger than [refreshAutoplayIfQueueEmpty]. That
+     * helper is for ordinary queue edits and correctly avoids competing with a
+     * request already in flight. At STATE_ENDED, however, an in-flight request
+     * may be the request that failed to append anything, so retaining its job
+     * and seed can strand Android Auto on the restored song until another queue
+     * edit (such as toggling Shuffle) happens.
+     */
+    private fun restartAutoplayAfterQueueEnded() {
+        val exoPlayer = player ?: return
+        if (!autoplayEnabled(ListenTogether.state.value) ||
+            exoPlayer.repeatMode == Player.REPEAT_MODE_ALL
+        ) {
+            return
+        }
+        autoplayLoadJob?.cancel()
         autoplayLoadJob = null
         autoplaySeed = null
         loadAutoplayForCurrentTrack()
